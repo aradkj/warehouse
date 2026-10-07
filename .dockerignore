@@ -1,0 +1,21 @@
+# Keep the build context small and the image free of local state.
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+dist
+build
+*.egg-info
+docs
+scripts
+.env
+.env.*
+!.env.example
+*.log

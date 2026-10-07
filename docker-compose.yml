@@ -1,0 +1,396 @@
+
+# Phase 1 runtime: the API and its PostgreSQL system of record.
+#
+# Services:
+#   postgres      : PostgreSQL source of truth
+#   migrate       : one-shot Alembic migration runner for the application DB
+#   api           : production runtime image
+#   test-migrate  : one-shot Alembic migration runner for the test DB
+#   test          : isolated test environment (pytest/dev dependencies only)
+#
+# Phase 2+ services are deliberately absent:
+# no broker, no cache, no search cluster.
+#
+# Commands:
+#
+#   docker compose up --build
+#       Start PostgreSQL, run production migrations, start API
+#
+#   docker compose run --rm test
+#       Automatically migrate the test database, then run the complete test suite
+#
+#   docker compose down -v
+#       Stop containers and remove database volume
+
+name: arad
+
+services:
+
+  # ----------------------------------------------------
+  # PostgreSQL
+  # ----------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: arad
+      POSTGRES_PASSWORD: arad
+      POSTGRES_DB: arad
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arad -d arad"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    command:
+      - postgres
+      - -c
+      - statement_timeout=30000
+      - -c
+      - lock_timeout=10000
+      - -c
+      - deadlock_timeout=1000
+
+
+  # ----------------------------------------------------
+  # Production database migrations
+  # ----------------------------------------------------
+  migrate:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_ENVIRONMENT: production
+
+    command:
+      [
+        "alembic",
+        "upgrade",
+        "head"
+      ]
+
+    restart: "no"
+
+
+  # ----------------------------------------------------
+  # API
+  # ----------------------------------------------------
+  api:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+      ARAD_LOG_JSON: "true"
+
+      ARAD_UNAVAILABLE_STOCK_POLICY: BACKORDER
+
+      ARAD_RESERVATION_TTL_SECONDS: "1800"
+
+      ARAD_IDEMPOTENCY_RETENTION_SECONDS: "604800"
+
+    ports:
+      - "8000:8000"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://127.0.0.1:8000/readyz"
+        ]
+
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    read_only: true
+
+    security_opt:
+      - no-new-privileges:true
+
+    tmpfs:
+      - /tmp
+
+
+  # ----------------------------------------------------
+  # Test database migrations
+  # ----------------------------------------------------
+  #
+  # Runs Alembic against the dedicated arad_test database.
+  #
+  # This service is only used by the test profile.
+  #
+  # The test service depends on this service completing
+  # successfully, so the test database is always migrated
+  # before pytest starts.
+
+  test-migrate:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad_test
+      ARAD_ENVIRONMENT: test
+
+    command:
+      [
+        "alembic",
+        "upgrade",
+        "head"
+      ]
+
+    restart: "no"
+
+    profiles:
+      - test
+
+
+  # ----------------------------------------------------
+  # RabbitMQ Message Broker
+  # ----------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+
+    environment:
+      RABBITMQ_DEFAULT_USER: arad
+      RABBITMQ_DEFAULT_PASS: arad
+
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+
+  # ----------------------------------------------------
+  # Outbox Relay Service
+  # ----------------------------------------------------
+  outbox-relay:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+
+    command:
+      [
+        "python",
+        "-m",
+        "bootstrap.workers",
+        "relay"
+      ]
+
+    healthcheck:
+      disable: true
+
+
+  # ----------------------------------------------------
+  # Celery Worker
+  # ----------------------------------------------------
+  worker:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_CELERY_BROKER_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+
+    command:
+      [
+        "celery",
+        "-A",
+        "bootstrap.celery_app",
+        "worker",
+        "--loglevel=INFO"
+      ]
+
+    healthcheck:
+      disable: true
+
+
+  # ----------------------------------------------------
+  # Celery Beat Scheduler
+  # ----------------------------------------------------
+  beat:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_CELERY_BROKER_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+
+    command:
+      [
+        "celery",
+        "-A",
+        "bootstrap.celery_app",
+        "beat",
+        "--loglevel=INFO",
+        "-s",
+        "/tmp/celerybeat-schedule"
+      ]
+
+    healthcheck:
+      disable: true
+
+
+  # ----------------------------------------------------
+  # Test environment
+  # ----------------------------------------------------
+  #
+  # Separate from API runtime.
+  #
+  # Contains:
+  # - pytest
+  # - pytest plugins
+  # - development dependencies
+  #
+  # It is intentionally not started by:
+  #
+  # docker compose up
+  #
+  # Run manually:
+  #
+  # docker compose run --rm test
+  #
+  # Before pytest starts, test-migrate automatically
+  # applies all Alembic migrations to arad_test.
+
+  test:
+    build:
+      context: .
+      target: test
+
+    depends_on:
+      test-migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      # Application database.
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+
+      # Dedicated PostgreSQL database used exclusively by the test suite.
+      # tests/conftest.py reads this variable.
+      ARAD_TEST_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad_test
+
+      ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_CELERY_BROKER_URL: amqp://arad:arad@rabbitmq:5672//
+
+      ARAD_ENVIRONMENT: test
+
+      ARAD_LOG_LEVEL: WARNING
+
+      ARAD_LOG_JSON: "false"
+
+      ARAD_UNAVAILABLE_STOCK_POLICY: BACKORDER
+
+      ARAD_RESERVATION_TTL_SECONDS: "1800"
+
+      ARAD_IDEMPOTENCY_RETENTION_SECONDS: "604800"
+
+    profiles:
+      - test
+
+
+volumes:
+
+  postgres-data:

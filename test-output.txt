@@ -1,0 +1,33 @@
+﻿============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0
+rootdir: /app
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1, asyncio-1.4.0, hypothesis-6.168.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+collected 299 items
+
+tests/api/test_api.py .................................................. [ 16%]
+.                                                                        [ 17%]
+tests/application/test_catalog_operations.py ...............             [ 22%]
+tests/application/test_inventory_operations.py .......................   [ 29%]
+tests/application/test_order_submission.py .....................         [ 36%]
+tests/concurrency/test_inventory_concurrency.py ...........              [ 40%]
+tests/integration/test_failure_injection.py .                            [ 40%]
+tests/integration/test_inbox_concurrency.py .......                      [ 43%]
+tests/integration/test_inbox_idempotency.py ..                           [ 43%]
+tests/integration/test_migrations.py ................                    [ 49%]
+tests/integration/test_outbox_persistence.py ..                          [ 49%]
+tests/integration/test_outbox_relay.py ..                                [ 50%]
+tests/integration/test_rabbitmq_retry.py .....                           [ 52%]
+tests/integration/test_reservation_expiration.py ...                     [ 53%]
+tests/repository/test_repositories.py .............                      [ 57%]
+tests/unit/test_architecture.py .........                                [ 60%]
+tests/unit/test_catalog_domain.py ..................................     [ 71%]
+tests/unit/test_dependency_boundary.py ...                               [ 72%]
+tests/unit/test_inventory_domain.py ...................................  [ 84%]
+tests/unit/test_order_domain.py .........................                [ 92%]
+tests/unit/test_outbox_envelope.py ..                                    [ 93%]
+tests/unit/test_value_objects.py ...................                     [100%]
+
+============================= 299 passed in 43.68s =============================

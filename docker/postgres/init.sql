@@ -1,0 +1,1 @@
+CREATE DATABASE arad_test;
