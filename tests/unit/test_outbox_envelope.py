@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 
 import pytest
+
 from ordering.domain.events import OrderConfirmed, OrderPlaced
-from shared.domain.events import DomainEvent, TenantDomainEvent
 from shared.domain.identifiers import OrderId, TenantId
 
 pytestmark = pytest.mark.unit

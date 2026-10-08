@@ -6,6 +6,7 @@ Celery handles asynchronous background processing (e.g., reservation expiration 
 from __future__ import annotations
 
 import logging
+
 from celery import Celery
 
 from bootstrap.config import get_settings

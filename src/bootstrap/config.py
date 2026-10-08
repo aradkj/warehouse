@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ordering.domain.policies import UnavailableStockPolicy
@@ -90,6 +90,38 @@ class Settings(BaseSettings):
 
     reservation_expiry_interval_seconds: int = 30
     reservation_expiry_batch_size: int = 50
+
+    # -- caching & redis (Phase 3) -----------------------------------------
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("ARAD_REDIS_URL", "REDIS_URL"),
+        description="Redis connection URL for cache and distributed locks.",
+    )
+    redis_max_connections: int = 50
+    redis_socket_timeout_seconds: float = 2.0
+    redis_connect_timeout_seconds: float = 2.0
+    redis_key_prefix: str = "arad"
+    redis_default_ttl_seconds: int = 300
+    redis_negative_ttl_seconds: int = 30
+    redis_lock_timeout_seconds: float = 5.0
+
+    # -- search & elasticsearch (Phase 3) ----------------------------------
+    elasticsearch_url: str = Field(
+        default="http://localhost:9200",
+        validation_alias=AliasChoices("ARAD_ELASTICSEARCH_URL", "ELASTICSEARCH_URL"),
+        description="Elasticsearch connection URL.",
+    )
+    elasticsearch_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias=AliasChoices(
+            "ARAD_ELASTICSEARCH_TIMEOUT_SECONDS", "ELASTICSEARCH_TIMEOUT"
+        ),
+        description="Socket timeout for Elasticsearch operations.",
+    )
+    elasticsearch_max_retries: int = Field(
+        default=3,
+        description="Maximum retry attempts on transient Elasticsearch network errors.",
+    )
 
     # -- tests -------------------------------------------------------------
     test_database_url: str = "postgresql+asyncpg://arad:arad@localhost:5432/arad_test"

@@ -19,9 +19,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.conftest import test_database_url as get_test_database_url
-from tests.support.database import scalar
 
 from shared.infrastructure.db.session import Database
 from shared.infrastructure.db.tables import inbox_messages
@@ -230,7 +228,9 @@ async def test_concurrent_reclaim_of_expired_lease_only_one_wins(database_handle
     assert statuses.count(ClaimStatus.LOCKED_BY_OTHER) == 1
 
 
-async def test_original_worker_cannot_finalize_after_losing_lease(database_handle: Database) -> None:
+async def test_original_worker_cannot_finalize_after_losing_lease(
+    database_handle: Database,
+) -> None:
     """If Worker A loses its lease to Worker B, Worker A cannot mark PROCESSED."""
     tenant_id = await _create_tenant(database_handle)
     msg_id = f"msg-lost-lease-{uuid.uuid4().hex}"
@@ -329,7 +329,9 @@ async def test_original_worker_cannot_fail_after_losing_lease(database_handle: D
 
 
 async def test_failure_recording_survives_business_rollback(database_handle: Database) -> None:
-    """Durable failure recording correctly records FAILED status even when business transaction rolls back."""
+    """Durable failure recording correctly records FAILED status even when business
+    transaction rolls back.
+    """
     tenant_id = await _create_tenant(database_handle)
     msg_id = f"msg-fail-durable-{uuid.uuid4().hex}"
     consumer = "inventory_service"

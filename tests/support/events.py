@@ -24,7 +24,9 @@ class RecordingEventDispatcher:
 
     events: list[DomainEvent] = field(default_factory=list)
 
-    async def dispatch(self, events: tuple[DomainEvent, ...], *args: object, **kwargs: object) -> None:
+    async def dispatch(
+        self, events: tuple[DomainEvent, ...], *args: object, **kwargs: object
+    ) -> None:
         self.events.extend(events)
 
     def names(self) -> list[str]:

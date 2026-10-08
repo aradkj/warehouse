@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -55,20 +55,20 @@ class OutboxEvent:
 
 def resolve_aggregate_info(event: DomainEvent) -> tuple[str, uuid.UUID]:
     """Infer (aggregate_type, aggregate_id) from a domain event's attributes."""
-    if hasattr(event, "order_id") and getattr(event, "order_id") is not None:
-        return "order", uuid.UUID(str(getattr(event, "order_id")))
-    if hasattr(event, "reservation_id") and getattr(event, "reservation_id") is not None:
-        return "reservation", uuid.UUID(str(getattr(event, "reservation_id")))
-    if hasattr(event, "inventory_item_id") and getattr(event, "inventory_item_id") is not None:
-        return "inventory_item", uuid.UUID(str(getattr(event, "inventory_item_id")))
-    if hasattr(event, "product_id") and getattr(event, "product_id") is not None:
-        return "product", uuid.UUID(str(getattr(event, "product_id")))
-    if hasattr(event, "sku_id") and getattr(event, "sku_id") is not None:
-        return "sku", uuid.UUID(str(getattr(event, "sku_id")))
-    if hasattr(event, "warehouse_id") and getattr(event, "warehouse_id") is not None:
-        return "warehouse", uuid.UUID(str(getattr(event, "warehouse_id")))
-    if hasattr(event, "tenant_id") and getattr(event, "tenant_id") is not None:
-        return "tenant", uuid.UUID(str(getattr(event, "tenant_id")))
+    if hasattr(event, "order_id") and event.order_id is not None:
+        return "order", uuid.UUID(str(event.order_id))
+    if hasattr(event, "reservation_id") and event.reservation_id is not None:
+        return "reservation", uuid.UUID(str(event.reservation_id))
+    if hasattr(event, "inventory_item_id") and event.inventory_item_id is not None:
+        return "inventory_item", uuid.UUID(str(event.inventory_item_id))
+    if hasattr(event, "product_id") and event.product_id is not None:
+        return "product", uuid.UUID(str(event.product_id))
+    if hasattr(event, "sku_id") and event.sku_id is not None:
+        return "sku", uuid.UUID(str(event.sku_id))
+    if hasattr(event, "warehouse_id") and event.warehouse_id is not None:
+        return "warehouse", uuid.UUID(str(event.warehouse_id))
+    if hasattr(event, "tenant_id") and event.tenant_id is not None:
+        return "tenant", uuid.UUID(str(event.tenant_id))
     return "domain_event", event.event_id
 
 
@@ -105,8 +105,8 @@ class SqlAlchemyOutboxEventDispatcher(EventDispatcher):
                 correlation_id = context.correlation_id
                 causation_id = context.causation_id or context.correlation_id
             else:
-                correlation_id = envelope.get("correlation_id") or str(uuid.uuid4())
-                causation_id = envelope.get("causation_id") or str(event.event_id)
+                correlation_id = str(envelope.get("correlation_id") or uuid.uuid4())
+                causation_id = str(envelope.get("causation_id") or event.event_id)
 
             headers = {
                 "correlation_id": correlation_id,
@@ -242,7 +242,9 @@ class SqlAlchemyOutboxRepository:
         max_delay_seconds: float = 60.0,
         jitter_seconds: float = 0.5,
     ) -> None:
-        """Record publication failure; retry with backoff and jitter or mark FAILED if max_attempts reached."""
+        """Record publication failure; retry with backoff and jitter or mark FAILED
+        if max_attempts reached.
+        """
         stmt = select(outbox_events.c.attempt_count).where(outbox_events.c.id == event_id)
         current_attempts = (await self._session.execute(stmt)).scalar_one_or_none() or 1
 
@@ -253,7 +255,7 @@ class SqlAlchemyOutboxRepository:
             new_status = "PENDING"
             delay = min(max_delay_seconds, backoff_seconds * (2 ** max(0, current_attempts - 1)))
             if jitter_seconds > 0:
-                delay += random.uniform(0.0, jitter_seconds)
+                delay += random.uniform(0.0, jitter_seconds)  # noqa: S311
             delay = max(0.0, delay)
             available_at = now + timedelta(seconds=delay)
 

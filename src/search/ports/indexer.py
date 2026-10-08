@@ -31,9 +31,40 @@ class SearchDocument:
 class SearchIndexer(Protocol):
     """Outbound port: write denormalised documents to the search engine."""
 
-    async def index(self, documents: tuple[SearchDocument, ...]) -> None: ...
+    async def index(self, documents: tuple[SearchDocument, ...]) -> None:
+        """Index one or more documents into the target search index."""
+        ...
 
-    async def delete(self, *, index_alias: str, document_ids: tuple[str, ...]) -> None: ...
+    async def delete(self, *, index_alias: str, document_ids: tuple[str, ...]) -> None:
+        """Delete one or more documents by ID from the search index."""
+        ...
+
+    async def get_document(
+        self, *, index_alias: str, document_id: str
+    ) -> dict[str, object] | None:
+        """Retrieve a raw document by its identifier, or None if not found."""
+        ...
+
+    async def ensure_index(
+        self,
+        *,
+        index_name: str,
+        mappings: dict[str, object],
+        aliases: tuple[str, ...] = (),
+    ) -> bool:
+        """Idempotently initialize an index with mappings and aliases if not present.
+
+        Returns True if created, False if already existed.
+        """
+        ...
+
+    async def ping(self) -> bool:
+        """Verify search engine connectivity."""
+        ...
+
+    async def close(self) -> None:
+        """Cleanly close connection pools."""
+        ...
 
 
 PLANNED_PHASE = 3

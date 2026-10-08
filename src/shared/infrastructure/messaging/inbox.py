@@ -1,19 +1,20 @@
 """Consumer Inbox implementation for message-level idempotency.
 
 Prevents duplicate execution when the same message is delivered more than once to a consumer.
-Each consumer uses its own consumer_name so multiple distinct services can process the same message once each.
-Provides atomic claim/lease semantics, ownership tracking, and crash/lease recovery.
+Each consumer uses its own consumer_name so multiple distinct services can process the same
+message once each. Provides atomic claim/lease semantics, ownership tracking, and
+crash/lease recovery.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +32,9 @@ class ClaimStatus(StrEnum):
 
 
 class InboxOwnershipLostError(Exception):
-    """Raised when a worker attempts to finalize an inbox message whose lease was lost or reclaimed."""
+    """Raised when a worker attempts to finalize an inbox message whose lease
+    was lost or reclaimed.
+    """
 
 
 class ClaimResult:
@@ -94,12 +97,14 @@ class SqlAlchemyInboxRepository:
         """Atomically claim a message lease for processing.
 
         Guarantees:
-        - If row doesn't exist: inserts with status PROCESSING, locked_by=worker_id, returns GRANTED.
+        - If row doesn't exist: inserts with status PROCESSING, locked_by=worker_id,
+          returns GRANTED.
         - If row is PROCESSED: returns ALREADY_PROCESSED.
         - If row is PROCESSING with active lease (lease_until > now): returns LOCKED_BY_OTHER.
         - If row is PROCESSING with expired lease (lease_until <= now) or FAILED or RECEIVED:
           atomically updates locked_by=worker_id, lease_until=now+ttl, returns GRANTED.
-        - If two workers race to claim/reclaim: PostgreSQL row lock ensures exactly ONE worker succeeds.
+        - If two workers race to claim/reclaim: PostgreSQL row lock ensures exactly
+          ONE worker succeeds.
         """
         lease_until = now + timedelta(seconds=lease_duration_seconds)
 
@@ -187,7 +192,7 @@ class SqlAlchemyInboxRepository:
             lease_duration_seconds=lease_duration_seconds,
         )
         if worker_id is None:
-            return True if res.granted else False
+            return bool(res.granted)
         return res
 
     async def mark_processed(
@@ -227,9 +232,11 @@ class SqlAlchemyInboxRepository:
             lease_until=None,
         )
         result = await self._session.execute(stmt)
-        if worker_id is not None and result.rowcount == 0:
+        cursor_result = cast(CursorResult[Any], result)
+        if worker_id is not None and cursor_result.rowcount == 0:
             raise InboxOwnershipLostError(
-                f"Worker {worker_id} cannot mark message {message_id} as PROCESSED: ownership lost or lease expired"
+                f"Worker {worker_id} cannot mark message {message_id} as PROCESSED: "
+                "ownership lost or lease expired"
             )
 
     async def record_failure(
@@ -271,9 +278,11 @@ class SqlAlchemyInboxRepository:
             lease_until=None,
         )
         result = await self._session.execute(stmt)
-        if worker_id is not None and result.rowcount == 0:
+        cursor_result = cast(CursorResult[Any], result)
+        if worker_id is not None and cursor_result.rowcount == 0:
             raise InboxOwnershipLostError(
-                f"Worker {worker_id} cannot mark message {message_id} as FAILED: ownership lost or lease expired"
+                f"Worker {worker_id} cannot mark message {message_id} as FAILED: "
+                "ownership lost or lease expired"
             )
 
 

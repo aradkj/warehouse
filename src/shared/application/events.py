@@ -11,7 +11,7 @@ they never import a broker client.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from shared.domain.events import DomainEvent
 

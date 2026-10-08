@@ -1,7 +1,8 @@
 """Reservation expiration integration tests against PostgreSQL.
 
 Proves:
-1. Expired active reservation (expires_at < now) is transitioned to EXPIRED by ExpireReservations use case.
+1. Expired active reservation (expires_at < now) is transitioned to EXPIRED by
+   ExpireReservations use case.
 2. Reserved stock is restored to available.
 3. InventoryReservationExpired event is dispatched into outbox_events in the same transaction.
 4. Non-expired reservation remains ACTIVE.
@@ -15,10 +16,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from tests.support.database import count, rows, scalar
+from sqlalchemy.ext.asyncio import AsyncEngine
+from tests.conftest import test_database_url as get_test_database_url
+from tests.support.database import count, scalar
 
 from bootstrap.config import Settings
 from bootstrap.dependencies import build_use_cases
+from catalog.application.commands import (
+    ChangeProductStateCommand,
+    CreateProductCommand,
+    CreateSkuCommand,
+)
 from identity.application.commands import RegisterTenantCommand
 from inventory.application.commands import (
     AdjustInventoryCommand,
@@ -33,8 +41,6 @@ from shared.domain.clock import SystemClock
 from shared.domain.identifiers import TenantId
 from shared.domain.value_objects import Quantity
 from shared.infrastructure.db.session import Database
-
-from tests.conftest import test_database_url as get_test_database_url
 
 pytestmark = [pytest.mark.repository]
 
@@ -67,7 +73,9 @@ async def test_expired_reservation_is_released_and_stock_restored(
     # 1. Register tenant, warehouse, product, SKU, receive stock
     platform_ctx = RequestContext(actor_id="test", actor_type=ActorType.SERVICE_ACCOUNT)
     tenant_res = await use_cases.register_tenant(
-        RegisterTenantCommand(context=platform_ctx, slug=f"exp-{uuid.uuid4().hex[:6]}", name="Exp Tenant")
+        RegisterTenantCommand(
+            context=platform_ctx, slug=f"exp-{uuid.uuid4().hex[:6]}", name="Exp Tenant"
+        )
     )
     tenant_id = tenant_res.view.id
     tenant_uuid = TenantId(tenant_id)
@@ -77,17 +85,17 @@ async def test_expired_reservation_is_released_and_stock_restored(
         RegisterWarehouseCommand(tenant_id=tenant_uuid, context=ctx, code="WH-EXP", name="WH EXP")
     )
     product = await use_cases.create_product(
-        __import__("catalog.application.commands", fromlist=["CreateProductCommand"]).CreateProductCommand(
+        CreateProductCommand(
             tenant_id=tenant_uuid, context=ctx, slug="exp-product", name="Exp Product"
         )
     )
     await use_cases.activate_product(
-        __import__("catalog.application.commands", fromlist=["ChangeProductStateCommand"]).ChangeProductStateCommand(
+        ChangeProductStateCommand(
             tenant_id=tenant_uuid, context=ctx, product_id=product.view.id
         )
     )
     sku = await use_cases.create_sku(
-        __import__("catalog.application.commands", fromlist=["CreateSkuCommand"]).CreateSkuCommand(
+        CreateSkuCommand(
             tenant_id=tenant_uuid,
             context=ctx,
             product_id=product.view.id,
@@ -124,16 +132,15 @@ async def test_expired_reservation_is_released_and_stock_restored(
     reservation_id = res.view.reservation.id
 
     # Verify stock reserved
-    assert (
-        await scalar(
-            admin_engine, "SELECT reserved FROM inventory_items WHERE sku_id = :sku", sku=sku.view.id
-        )
-        == 4
+    reserved_qty = await scalar(
+        admin_engine, "SELECT reserved FROM inventory_items WHERE sku_id = :sku", sku=sku.view.id
     )
+    assert reserved_qty == 4
 
     # 3. Fast forward time by updating expires_at to past
     async with database_handle.new_scope() as update_scope:
         from sqlalchemy import update
+
         from inventory.adapters.persistence.tables import reservations
         past_expires = datetime.now(UTC) - timedelta(seconds=10)
         past_created = past_expires - timedelta(minutes=10)
@@ -186,7 +193,9 @@ async def test_active_future_reservation_is_not_expired(
 
     platform_ctx = RequestContext(actor_id="test", actor_type=ActorType.SERVICE_ACCOUNT)
     tenant_res = await use_cases.register_tenant(
-        RegisterTenantCommand(context=platform_ctx, slug=f"fut-{uuid.uuid4().hex[:6]}", name="Future Tenant")
+        RegisterTenantCommand(
+            context=platform_ctx, slug=f"fut-{uuid.uuid4().hex[:6]}", name="Future Tenant"
+        )
     )
     tenant_id = tenant_res.view.id
     tenant_uuid = TenantId(tenant_id)
@@ -196,12 +205,12 @@ async def test_active_future_reservation_is_not_expired(
         RegisterWarehouseCommand(tenant_id=tenant_uuid, context=ctx, code="WH-FUT", name="WH FUT")
     )
     product = await use_cases.create_product(
-        __import__("catalog.application.commands", fromlist=["CreateProductCommand"]).CreateProductCommand(
+        CreateProductCommand(
             tenant_id=tenant_uuid, context=ctx, slug="fut-product", name="Fut Product"
         )
     )
     sku = await use_cases.create_sku(
-        __import__("catalog.application.commands", fromlist=["CreateSkuCommand"]).CreateSkuCommand(
+        CreateSkuCommand(
             tenant_id=tenant_uuid,
             context=ctx,
             product_id=product.view.id,
@@ -272,7 +281,9 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
 
     platform_ctx = RequestContext(actor_id="test", actor_type=ActorType.SERVICE_ACCOUNT)
     tenant_res = await use_cases.register_tenant(
-        RegisterTenantCommand(context=platform_ctx, slug=f"cexp-{uuid.uuid4().hex[:6]}", name="Conc Exp Tenant")
+        RegisterTenantCommand(
+            context=platform_ctx, slug=f"cexp-{uuid.uuid4().hex[:6]}", name="Conc Exp Tenant"
+        )
     )
     tenant_id = tenant_res.view.id
     tenant_uuid = TenantId(tenant_id)
@@ -282,12 +293,12 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
         RegisterWarehouseCommand(tenant_id=tenant_uuid, context=ctx, code="WH-CEXP", name="WH CEXP")
     )
     product = await use_cases.create_product(
-        __import__("catalog.application.commands", fromlist=["CreateProductCommand"]).CreateProductCommand(
+        CreateProductCommand(
             tenant_id=tenant_uuid, context=ctx, slug="cexp-product", name="Cexp Product"
         )
     )
     sku = await use_cases.create_sku(
-        __import__("catalog.application.commands", fromlist=["CreateSkuCommand"]).CreateSkuCommand(
+        CreateSkuCommand(
             tenant_id=tenant_uuid,
             context=ctx,
             product_id=product.view.id,
@@ -324,6 +335,7 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
     # Fast-forward expires_at to past
     async with database_handle.new_scope() as update_scope:
         from sqlalchemy import update
+
         from inventory.adapters.persistence.tables import reservations
         past_expires = datetime.now(UTC) - timedelta(seconds=10)
         past_created = past_expires - timedelta(minutes=10)

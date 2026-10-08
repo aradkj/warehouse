@@ -10,9 +10,8 @@ import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
-from shared.infrastructure.db.outbox import SqlAlchemyOutboxRepository
+from shared.infrastructure.db.outbox import OutboxEvent, SqlAlchemyOutboxRepository
 from shared.infrastructure.db.session import Database
 from shared.infrastructure.messaging.publisher import RabbitMQPublisher
 
@@ -59,7 +58,7 @@ class OutboxRelayService:
         Returns number of events processed.
         """
         now = datetime.now(UTC)
-        claimed_events = ()
+        claimed_events: tuple[OutboxEvent, ...] = ()
 
         # 1. Claim batch in atomic transaction
         async with self._database.new_scope() as scope:

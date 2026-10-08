@@ -24,7 +24,15 @@ pytestmark = pytest.mark.unit
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 #: Top-level modules a pure test run must never pull in.
-INFRASTRUCTURE_MODULES = ("sqlalchemy", "fastapi", "httpx", "asyncpg", "alembic", "starlette")
+INFRASTRUCTURE_MODULES = (
+    "sqlalchemy",
+    "fastapi",
+    "httpx",
+    "asyncpg",
+    "alembic",
+    "starlette",
+    "redis",
+)
 
 PROBE = """
 import sys

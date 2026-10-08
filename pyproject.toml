@@ -23,6 +23,10 @@ dependencies = [
     "aio-pika>=9.4.0,<10.0.0",
     "celery>=5.4.0,<6.0.0",
     "kombu>=5.4.0,<6.0.0",
+    # Phase 3: Redis caching & Elasticsearch search
+    "redis>=5.0.0,<6.0.0",
+    "elasticsearch>=8.12.0,<9.0.0",
+    "aiohttp>=3.9.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -76,6 +80,9 @@ markers = [
     "inbox: consumer inbox idempotency tests",
     "messaging: RabbitMQ & messaging integration tests",
     "celery: Celery worker and scheduler tests",
+    "redis: Redis caching & infrastructure tests",
+    "elasticsearch: Elasticsearch search infrastructure & indexer tests",
+    "projection: Search projection and read-model tests",
 ]
 
 # --------------------------------------------------------------------------
@@ -148,3 +155,15 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["migrations.*"]
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["celery", "celery.*", "kombu", "kombu.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["bootstrap.workers"]
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["elasticsearch", "elasticsearch.*"]
+ignore_missing_imports = true

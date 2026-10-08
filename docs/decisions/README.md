@@ -17,5 +17,7 @@ than the outcome.
 | [0008](0008-published-ports.md) | Published ports | a context exposes one contract module; the provider owns the DTOs |
 | [0009](0009-in-process-cross-context-adapters.md) | In-process cross-context adapters | one transaction and real foreign keys now; a client and a saga later, with no domain change |
 | [0010](0010-multi-tenancy.md) | Multi-tenancy | shared schema, `tenant_id` on every owned row, RLS deferred to Phase 4 |
+| [0011](0011-redis-cache-foundation.md) | Redis cache foundation | cache-aside, tenant-prefixed keys, stampede protection, graceful degradation |
+| [0012](0012-elasticsearch-search-projection.md) | Elasticsearch search projection | event-driven read models, optimistic versioning, selective cache invalidation |
 
 Operational notes live in [`../runbooks/`](../runbooks/).

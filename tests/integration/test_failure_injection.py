@@ -26,19 +26,18 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from tests.support.database import count, scalar
+from sqlalchemy.ext.asyncio import AsyncEngine
+from tests.conftest import test_database_url as get_test_database_url
+from tests.support.database import count
 
 from bootstrap.config import Settings
 from bootstrap.dependencies import build_use_cases
 from identity.application.commands import RegisterTenantCommand
 from shared.application.context import ActorType, RequestContext
 from shared.domain.clock import SystemClock
-from shared.infrastructure.db.outbox import SqlAlchemyOutboxRepository
 from shared.infrastructure.db.session import Database
 from shared.infrastructure.messaging.inbox import SqlAlchemyInboxRepository
 from shared.infrastructure.messaging.relay import OutboxRelayService
-
-from tests.conftest import test_database_url as get_test_database_url
 
 pytestmark = [pytest.mark.outbox, pytest.mark.messaging, pytest.mark.repository]
 

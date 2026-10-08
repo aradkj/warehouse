@@ -19,9 +19,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response, status
 
 from bootstrap.config import Settings
-from bootstrap.dependencies import get_application_settings, get_database
+from bootstrap.dependencies import get_application_settings, get_cache, get_database
 from bootstrap.schemas.common import HealthResponse
 from shared.infrastructure.db.session import Database
+from shared.ports.cache import CachePort
 
 router = APIRouter(tags=["health"])
 
@@ -42,21 +43,30 @@ async def healthz(
 async def readyz(
     response: Response,
     database: Annotated[Database, Depends(get_database)],
+    cache: Annotated[CachePort, Depends(get_cache)],
     settings: Annotated[Settings, Depends(get_application_settings)],
 ) -> HealthResponse:
+    checks: dict[str, str] = {}
     try:
         await database.ping()
+        checks["database"] = "ok"
     except Exception:
-        # The response body is deliberately coarse - the probe tells the orchestrator
-        # *that* PostgreSQL is unreachable, not why - but the reason is never lost: it
-        # is logged here, with the traceback, at warning level.
         logger.warning("readiness probe failed: the database is unreachable", exc_info=True)
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        checks["database"] = "unreachable"
         return HealthResponse(
-            status="degraded", environment=settings.environment, checks={"database": "unreachable"}
+            status="degraded", environment=settings.environment, checks=checks
         )
+
+    # Cache is an accelerator: Redis outage degrades cache without failing readiness (Section 29)
+    try:
+        cache_ok = await cache.ping()
+        checks["cache"] = "ok" if cache_ok else "unreachable"
+    except Exception:
+        checks["cache"] = "unreachable"
+
     return HealthResponse(
-        status="ready", environment=settings.environment, checks={"database": "ok"}
+        status="ready", environment=settings.environment, checks=checks
     )
 
 

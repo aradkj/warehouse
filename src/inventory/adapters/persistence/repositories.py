@@ -464,7 +464,10 @@ class SqlAlchemyReservationRepository:
                 alloc_stmt = (
                     select(reservation_allocations)
                     .where(reservation_allocations.c.reservation_id == reservation_id)
-                    .order_by(reservation_allocations.c.created_at.asc(), reservation_allocations.c.id.asc())
+                    .order_by(
+                        reservation_allocations.c.created_at.asc(),
+                        reservation_allocations.c.id.asc(),
+                    )
                 )
                 allocs = list((await self._session.execute(alloc_stmt)).mappings().all())
                 res = reservation_to_domain(row, allocs)

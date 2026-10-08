@@ -161,6 +161,7 @@ class Sku(AggregateRoot):
                 previous_price_minor=previous.amount_minor,
                 new_price_minor=validated.amount_minor,
                 currency=validated.currency,
+                product_id=self._product_id,
             )
         )
 
@@ -170,7 +171,13 @@ class Sku(AggregateRoot):
             raise InvalidSkuTransition(self._status.value, SkuStatus.INACTIVE.value)
         self._status = SkuStatus.INACTIVE
         self._updated_at = now
-        self._record_event(SkuDeactivated(tenant_id=self.tenant_id, sku_id=self._id))
+        self._record_event(
+            SkuDeactivated(
+                tenant_id=self.tenant_id,
+                sku_id=self._id,
+                product_id=self._product_id,
+            )
+        )
 
     def activate(self, *, now: datetime) -> None:
         """Return a withdrawn SKU to sale (an explicit, allowed transition)."""
@@ -178,7 +185,13 @@ class Sku(AggregateRoot):
             raise InvalidSkuTransition(self._status.value, SkuStatus.ACTIVE.value)
         self._status = SkuStatus.ACTIVE
         self._updated_at = now
-        self._record_event(SkuActivated(tenant_id=self.tenant_id, sku_id=self._id))
+        self._record_event(
+            SkuActivated(
+                tenant_id=self.tenant_id,
+                sku_id=self._id,
+                product_id=self._product_id,
+            )
+        )
 
 
 def _validate_name(name: str) -> str:

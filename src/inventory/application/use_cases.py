@@ -51,6 +51,7 @@ from shared.application.use_case import (
 )
 from shared.domain.clock import Clock
 from shared.domain.errors import InvalidValue
+from shared.domain.events import DomainEvent
 from shared.domain.identifiers import (
     InventoryItemId,
     ReservationId,
@@ -412,7 +413,7 @@ class ExpireReservations(UseCase[ExpireReservationsCommand, int, InventoryUnitOf
             now=now, limit=command.limit, tenant_id=tenant_id
         )
 
-        all_events = []
+        all_events: list[DomainEvent] = []
         for reservation in expired_batch:
             expected_version = reservation.version
             quantities = reservation.quantities_by_item()

@@ -89,8 +89,8 @@ COPY alembic.ini ./
 
 
 RUN python -m venv /opt/venv \
- && pip install --upgrade pip \
- && pip install ".[dev]"
+ && pip install --upgrade --default-timeout=100 pip \
+ && pip install --default-timeout=100 ".[dev]"
 
 
 CMD ["pytest", "-q"]

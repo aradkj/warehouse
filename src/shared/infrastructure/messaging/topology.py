@@ -6,7 +6,6 @@ Declares durable exchange, queues, dead-letter queues, and binding topology.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import aio_pika
 
@@ -42,6 +41,14 @@ ROUTING_KEY_MAP = {
     "InventoryReservationExpired": "inventory.reservation_expired",
     "ReservationExpired": "inventory.reservation_expired",
     "TenantRegistered": "tenant.registered",
+    "ProductCreated": "product.created",
+    "ProductRevised": "product.revised",
+    "ProductActivated": "product.activated",
+    "ProductArchived": "product.archived",
+    "SkuCreated": "sku.created",
+    "SkuPriceChanged": "sku.price_changed",
+    "SkuActivated": "sku.activated",
+    "SkuDeactivated": "sku.deactivated",
 }
 
 

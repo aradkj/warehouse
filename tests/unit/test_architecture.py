@@ -126,14 +126,15 @@ def test_ports_do_not_import_adapters_or_frameworks() -> None:
 def test_application_layer_does_not_import_sqlalchemy_or_messaging() -> None:
     """Use cases orchestrate through ports; they never see a session, table, or message broker."""
     offenders: list[str] = []
-    forbidden = {"sqlalchemy", "aio_pika", "pika", "kombu", "celery"}
+    forbidden = {"sqlalchemy", "aio_pika", "pika", "kombu", "celery", "redis"}
     for context in CONTEXTS:
         for path in python_files(context, "application"):
             for module in imported_modules(path):
                 if module in forbidden:
                     offenders.append(f"{path.relative_to(SRC)} imports {module}")
-    assert not offenders, "application code must depend on ports, not SQLAlchemy or messaging:\n" + "\n".join(
-        offenders
+    assert not offenders, (
+        "application code must depend on ports, not SQLAlchemy or messaging:\n"
+        + "\n".join(offenders)
     )
 
 

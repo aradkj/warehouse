@@ -19,6 +19,7 @@ class ProductCreated(TenantDomainEvent):
 class ProductRevised(TenantDomainEvent):
     product_id: ProductId
     slug: str
+    name: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -46,16 +47,19 @@ class SkuPriceChanged(TenantDomainEvent):
     previous_price_minor: int
     new_price_minor: int
     currency: str
+    product_id: ProductId | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SkuDeactivated(TenantDomainEvent):
     sku_id: SkuId
+    product_id: ProductId | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SkuActivated(TenantDomainEvent):
     sku_id: SkuId
+    product_id: ProductId | None = None
 
 
 __all__ = [

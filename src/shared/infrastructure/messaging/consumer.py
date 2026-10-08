@@ -12,8 +12,9 @@ import json
 import logging
 import random
 import uuid
-from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import aio_pika
 
@@ -33,7 +34,10 @@ HandlerFunc = Callable[[dict[str, Any], RequestContext], Awaitable[Any]]
 
 
 class PermanentError(Exception):
-    """Errors that should NOT be retried (malformed payload, unsupported version, schema violation)."""
+    """Errors that should NOT be retried.
+
+    Examples: malformed payload, unsupported version, schema violation.
+    """
 
 
 class MalformedMessageError(PermanentError):
@@ -186,7 +190,7 @@ class IdempotentConsumer:
 
         if claim_res.status == ClaimStatus.LOCKED_BY_OTHER:
             logger.info(
-                "Consumer %s: Message %s is actively leased by worker %s; skipping duplicate execution.",
+                "Consumer %s: Message %s is leased by worker %s; skipping duplicate.",
                 self._consumer_name,
                 event_id,
                 claim_res.worker_id,
@@ -255,7 +259,7 @@ class IdempotentConsumer:
         body: dict[str, Any],
         exc: Exception,
     ) -> None:
-        """Route to DLQ if permanent failure or max retries exceeded; otherwise route to retry queue with backoff."""
+        """Route to DLQ if permanent or max retries exceeded; else route to retry queue."""
         if isinstance(exc, PermanentError):
             logger.error(
                 "Consumer %s: Permanent failure for message %s: %s -> routing to DLQ",
@@ -269,7 +273,7 @@ class IdempotentConsumer:
 
         raw_count = message.headers.get("x-retry-count", 1) if message.headers else 1
         try:
-            attempt = int(raw_count)
+            attempt = int(str(raw_count))
         except (ValueError, TypeError):
             attempt = 1
 
@@ -279,11 +283,11 @@ class IdempotentConsumer:
                 self._initial_retry_delay * (self._retry_multiplier ** max(0, attempt - 1)),
             )
             if self._retry_jitter > 0:
-                delay += random.uniform(0.0, self._retry_jitter)
+                delay += random.uniform(0.0, self._retry_jitter)  # noqa: S311
             delay = max(0.1, delay)
 
             logger.warning(
-                "Consumer %s: Transient failure on attempt %d/%d for message %s. Retrying in %.2fs...",
+                "Consumer %s: Transient failure on attempt %d/%d for message %s. Delay: %.2fs",
                 self._consumer_name,
                 attempt,
                 self._max_retries,
@@ -327,12 +331,13 @@ class IdempotentConsumer:
             content_type=message.content_type,
             content_encoding=message.content_encoding,
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            expiration=str(int(delay_seconds * 1000)),
+            expiration=timedelta(seconds=delay_seconds),
             message_id=message.message_id,
             correlation_id=message.correlation_id,
         )
         try:
-            exchange = await message.channel.get_exchange(EXCHANGE_RETRY)
+            channel: Any = message.channel
+            exchange = await channel.get_exchange(EXCHANGE_RETRY)
             await exchange.publish(retry_msg, routing_key=self._queue_name)
         except Exception as pub_exc:
             logger.error(
@@ -366,7 +371,8 @@ class IdempotentConsumer:
             correlation_id=message.correlation_id,
         )
         try:
-            dlx = await message.channel.get_exchange(EXCHANGE_DLX)
+            channel: Any = message.channel
+            dlx = await channel.get_exchange(EXCHANGE_DLX)
             await dlx.publish(dlq_msg, routing_key=dlq_routing_key)
         except Exception as pub_exc:
             logger.error(

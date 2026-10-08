@@ -50,6 +50,7 @@ from inventory.application.use_cases import (
 from ordering.application.queries import GetOrder, ListOrders
 from ordering.application.use_cases import CancelOrder, ConfirmOrder, CreateOrder
 from ordering.domain.policies import UnavailableStockPolicy
+from search.ports.indexer import SearchIndexer
 from shared.application.context import ActorType, RequestContext
 from shared.application.errors import InvalidRequest
 from shared.application.events import EventDispatcher, NullEventDispatcher
@@ -57,6 +58,7 @@ from shared.application.use_case import Outcome
 from shared.domain.clock import Clock, SystemClock
 from shared.domain.identifiers import TenantId
 from shared.infrastructure.db.session import Database, SqlAlchemyTransactionScope
+from shared.ports.cache import CachePort
 
 # ---------------------------------------------------------------------------
 # process-wide singletons (immutable, therefore safe to share)
@@ -81,6 +83,24 @@ def get_event_dispatcher(request: Request) -> EventDispatcher:
 
 def get_database(request: Request) -> Database:
     return request.app.state.database
+
+
+def get_cache(request: Request) -> CachePort:
+    cache = getattr(request.app.state, "cache", None)
+    if cache is None:
+        from shared.infrastructure.cache.memory import InMemoryCache
+
+        return InMemoryCache()
+    return cache
+
+
+def get_search_indexer(request: Request) -> SearchIndexer:
+    indexer = getattr(request.app.state, "search_indexer", None)
+    if indexer is None:
+        from search.adapters.memory import InMemorySearchIndexer
+
+        return InMemorySearchIndexer()
+    return indexer
 
 
 # ---------------------------------------------------------------------------
@@ -328,10 +348,12 @@ __all__ = [
     "apply_outcome",
     "build_use_cases",
     "get_application_settings",
+    "get_cache",
     "get_clock",
     "get_database",
     "get_event_dispatcher",
     "get_request_context",
+    "get_search_indexer",
     "get_tenant_context",
     "get_transaction_scope",
     "get_use_cases",

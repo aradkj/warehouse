@@ -15,12 +15,11 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+from tests.conftest import test_database_url as get_test_database_url
 from tests.support.database import count, scalar
 
 from shared.infrastructure.db.session import Database
 from shared.infrastructure.messaging.inbox import SqlAlchemyInboxRepository
-
-from tests.conftest import test_database_url as get_test_database_url
 
 pytestmark = [pytest.mark.inbox, pytest.mark.repository]
 

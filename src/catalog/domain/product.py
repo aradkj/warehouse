@@ -187,7 +187,12 @@ class Product(AggregateRoot):
             return
         self._updated_at = now
         self._record_event(
-            ProductRevised(tenant_id=self.tenant_id, product_id=self._id, slug=self._slug.value)
+            ProductRevised(
+                tenant_id=self.tenant_id,
+                product_id=self._id,
+                slug=self._slug.value,
+                name=self._name,
+            )
         )
 
     def activate(self, *, now: datetime) -> None:

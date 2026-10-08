@@ -5,14 +5,15 @@ Tests:
 2. Consumer routes transient failure to retry queue with backoff and preserves all event metadata.
 3. Consumer routes to DLQ when max retries are exhausted.
 4. Permanent errors (malformed payload, invalid schema, missing envelope) route directly to DLQ.
-5. Event identity (event_id, correlation_id, causation_id, tenant_id) is strictly preserved across retry.
+5. Event identity (event_id, correlation_id, causation_id, tenant_id) is strictly
+   preserved across retry.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,12 +21,10 @@ import pytest
 from tests.conftest import test_database_url as get_test_database_url
 
 from shared.application.context import RequestContext
-from shared.domain.identifiers import TenantId
 from shared.infrastructure.db.outbox import SqlAlchemyOutboxRepository
 from shared.infrastructure.db.session import Database
 from shared.infrastructure.messaging.consumer import (
     IdempotentConsumer,
-    PermanentError,
 )
 from shared.infrastructure.messaging.topology import EXCHANGE_DLX, EXCHANGE_RETRY
 
@@ -106,8 +105,9 @@ async def test_outbox_backoff_and_jitter(database_handle: Database) -> None:
         await scope.session.execute(
             text(
                 "INSERT INTO outbox_events "
-                "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, "
-                "payload, headers, correlation_id, occurred_at, status, attempt_count, available_at) "
+                "(id, tenant_id, event_type, schema_version, aggregate_type, "
+                "aggregate_id, payload, headers, correlation_id, occurred_at, status, "
+                "attempt_count, available_at) "
                 "VALUES (:id, :tenant, 'TestEvt', 1, 'order', :agg_id, '{}'::jsonb, '{}'::jsonb, "
                 "'corr', :now, 'CLAIMED', 2, :now)"
             ),
@@ -131,6 +131,7 @@ async def test_outbox_backoff_and_jitter(database_handle: Database) -> None:
 
     async with database_handle.new_scope() as scope:
         from sqlalchemy import select
+
         from shared.infrastructure.db.tables import outbox_events
 
         row = (
@@ -150,7 +151,9 @@ async def test_outbox_backoff_and_jitter(database_handle: Database) -> None:
 async def test_consumer_transient_failure_routes_to_retry_queue(
     database_handle: Database,
 ) -> None:
-    """Transient handler failure publishes to retry exchange with backoff and ACKs original message."""
+    """Transient handler failure publishes to retry exchange with backoff
+    and ACKs original message.
+    """
     from sqlalchemy import text
 
     tenant_id = uuid.uuid4()
@@ -279,7 +282,9 @@ async def test_consumer_exhausted_retries_routes_to_dlq(
 async def test_consumer_permanent_error_routes_immediately_to_dlq(
     database_handle: Database,
 ) -> None:
-    """Permanent errors (e.g. malformed JSON or schema version mismatch) bypass retry and route to DLQ immediately."""
+    """Permanent errors (e.g. malformed JSON or schema version mismatch)
+    bypass retry and route to DLQ immediately.
+    """
     channel = _make_fake_channel()
     consumer = IdempotentConsumer(
         database=database_handle,

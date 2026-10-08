@@ -91,8 +91,15 @@ async def app(settings: Settings, event_dispatcher: Any) -> AsyncIterator[Any]:
     catch.
     """
     from bootstrap.app import create_app
+    from search.adapters.memory import InMemorySearchIndexer
+    from shared.infrastructure.cache.memory import InMemoryCache
 
-    application = create_app(settings=settings, event_dispatcher=event_dispatcher)
+    application = create_app(
+        settings=settings,
+        event_dispatcher=event_dispatcher,
+        cache=InMemoryCache(),
+        search_indexer=InMemorySearchIndexer(),
+    )
     async with application.router.lifespan_context(application):  # type: ignore[attr-defined]
         yield application
 

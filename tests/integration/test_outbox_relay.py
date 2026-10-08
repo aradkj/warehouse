@@ -16,13 +16,11 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
-from tests.support.database import count, scalar
+from tests.conftest import test_database_url as get_test_database_url
+from tests.support.database import scalar
 
-from shared.domain.identifiers import TenantId
 from shared.infrastructure.db.outbox import SqlAlchemyOutboxRepository
 from shared.infrastructure.db.session import Database
-
-from tests.conftest import test_database_url as get_test_database_url
 
 pytestmark = [pytest.mark.outbox, pytest.mark.repository]
 
@@ -66,8 +64,10 @@ async def test_claim_batch_locks_and_claims_pending_events(
             await scope.session.execute(
                 text(
                     "INSERT INTO outbox_events "
-                    "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, payload, headers, correlation_id, occurred_at, available_at, status) "
-                    "VALUES (:id, :tenant, 'TestEvent', 1, 'order', :agg_id, '{}'::jsonb, '{}'::jsonb, 'corr-1', :now, :now, 'PENDING')"
+                    "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, "
+                    "payload, headers, correlation_id, occurred_at, available_at, status) "
+                    "VALUES (:id, :tenant, 'TestEvent', 1, 'order', :agg_id, "
+                    "'{}'::jsonb, '{}'::jsonb, 'corr-1', :now, :now, 'PENDING')"
                 ),
                 {"id": evt_id, "tenant": tenant_id, "agg_id": evt_id, "now": now},
             )
@@ -116,10 +116,20 @@ async def test_stale_claimed_events_are_recovered_by_relay(
         await scope.session.execute(
             text(
                 "INSERT INTO outbox_events "
-                "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, payload, headers, correlation_id, occurred_at, status, claimed_at, claimed_by) "
-                "VALUES (:id, :tenant, 'StaleEvent', 1, 'order', :agg_id, '{}'::jsonb, '{}'::jsonb, 'corr-2', :now, 'CLAIMED', :claimed_at, 'dead-worker')"
+                "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, "
+                "payload, headers, correlation_id, occurred_at, status, "
+                "claimed_at, claimed_by) "
+                "VALUES (:id, :tenant, 'StaleEvent', 1, 'order', :agg_id, "
+                "'{}'::jsonb, '{}'::jsonb, 'corr-2', :now, 'CLAIMED', "
+                ":claimed_at, 'dead-worker')"
             ),
-            {"id": evt_id, "tenant": tenant_id, "agg_id": evt_id, "now": now, "claimed_at": stale_time},
+            {
+                "id": evt_id,
+                "tenant": tenant_id,
+                "agg_id": evt_id,
+                "now": now,
+                "claimed_at": stale_time,
+            },
         )
         await scope.commit()
 

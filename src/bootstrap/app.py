@@ -25,8 +25,12 @@ from bootstrap.middleware import (
     RequestSizeLimitMiddleware,
 )
 from bootstrap.routers import catalog, health, inventory, ordering, platform
+from search.adapters.elasticsearch import ElasticsearchIndexAdapter
+from search.ports.indexer import SearchIndexer
 from shared.application.events import EventDispatcher, NullEventDispatcher
+from shared.infrastructure.cache.redis import RedisCacheAdapter
 from shared.infrastructure.db.session import Database
+from shared.ports.cache import CachePort
 
 API_VERSION = "0.1.0"
 
@@ -55,6 +59,8 @@ def create_app(
     *,
     settings: Settings | None = None,
     event_dispatcher: EventDispatcher | None = None,
+    cache: CachePort | None = None,
+    search_indexer: SearchIndexer | None = None,
 ) -> FastAPI:
     """Build the ASGI application."""
     app_settings = settings or get_settings()
@@ -72,9 +78,36 @@ def create_app(
             echo=app_settings.db_echo,
         )
         app.state.database = database
+
+        cache_instance: CachePort
+        owns_cache = False
+        if cache is not None:
+            cache_instance = cache
+        else:
+            cache_instance = RedisCacheAdapter.from_settings(app_settings)
+            owns_cache = True
+        app.state.cache = cache_instance
+
+        indexer_instance: SearchIndexer
+        owns_indexer = False
+        if search_indexer is not None:
+            indexer_instance = search_indexer
+        elif app_settings.elasticsearch_url:
+            indexer_instance = ElasticsearchIndexAdapter.from_settings(app_settings)
+            owns_indexer = True
+        else:
+            from search.adapters.memory import InMemorySearchIndexer
+
+            indexer_instance = InMemorySearchIndexer()
+        app.state.search_indexer = indexer_instance
+
         try:
             yield
         finally:
+            if owns_indexer:
+                await indexer_instance.close()
+            if owns_cache:
+                await cache_instance.close()
             await database.dispose()
 
     app = FastAPI(

@@ -70,7 +70,7 @@ def expire_reservations_task(self: Any) -> int:
         return asyncio.run(_run_expire_reservations())
     except Exception as exc:
         logger.error("Error in expire_reservations_task: %s", exc, exc_info=True)
-        raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+        raise self.retry(exc=exc, countdown=2 ** self.request.retries) from exc
 
 
 async def _run_outbox_relay() -> None:
@@ -106,18 +106,70 @@ async def _run_outbox_relay() -> None:
         await database.dispose()
 
 
+async def _run_search_consumer() -> None:
+    """Run search projection consumer worker loop listening to arad.search."""
+    import aio_pika
+
+    from search.adapters.elasticsearch import ElasticsearchIndexAdapter
+    from search.adapters.messaging import create_search_projection_consumer
+    from search.application.models import (
+        PRODUCTS_INDEX_ALIAS,
+        PRODUCTS_INDEX_MAPPINGS,
+        PRODUCTS_INDEX_V1,
+    )
+    from shared.infrastructure.cache.redis import RedisCacheAdapter
+    from shared.infrastructure.messaging.topology import QUEUE_SEARCH, declare_topology
+
+    settings = get_settings()
+    database = Database(settings.database_url)
+    cache: RedisCacheAdapter | None = None
+    if settings.redis_url:
+        cache = RedisCacheAdapter.from_settings(settings)
+
+    indexer = ElasticsearchIndexAdapter.from_settings(settings)
+
+    try:
+        # Pre-declare index and alias
+        await indexer.ensure_index(
+            index_name=PRODUCTS_INDEX_V1,
+            mappings=PRODUCTS_INDEX_MAPPINGS,
+            aliases=(PRODUCTS_INDEX_ALIAS,),
+        )
+
+        consumer, _ = create_search_projection_consumer(
+            database=database,
+            indexer=indexer,
+            cache=cache,
+            queue_name=QUEUE_SEARCH,
+        )
+
+        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+        async with connection:
+            channel = await connection.channel()
+            await channel.set_qos(prefetch_count=10)
+            await declare_topology(channel)
+            queue = await channel.get_queue(QUEUE_SEARCH)
+            logger.info("Search consumer listening on %s...", QUEUE_SEARCH)
+            async with queue.iterator() as queue_iter:
+                async for message in queue_iter:
+                    await consumer.process_message(message)
+    finally:
+        await indexer.close()
+        await database.dispose()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``python -m bootstrap.workers`` / ``arad-worker``."""
     parser = argparse.ArgumentParser(
         prog="arad-worker",
-        description="Arad background worker runner (Outbox Relay & Expiration Sweeper)",
+        description="Arad background worker runner",
     )
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["relay", "expire-reservations", "help"],
+        choices=["relay", "expire-reservations", "search-consumer", "help"],
         default="relay",
-        help="Command to run: 'relay' (outbox relay), 'expire-reservations' (single sweep)",
+        help="Command to run: 'relay', 'expire-reservations', 'search-consumer'",
     )
     args = parser.parse_args(argv)
     settings = get_settings()
@@ -132,6 +184,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Running single reservation expiration sweep...")
         count = asyncio.run(_run_expire_reservations())
         print(f"Expired {count} reservations.")
+        return 0
+    elif args.command == "search-consumer":
+        logger.info("Starting search projection consumer...")
+        asyncio.run(_run_search_consumer())
         return 0
     else:
         parser.print_help()
