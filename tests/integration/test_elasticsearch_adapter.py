@@ -19,7 +19,9 @@ from search.ports.indexer import SearchDocument
 
 pytestmark = [pytest.mark.integration, pytest.mark.elasticsearch]
 
-ES_URL = os.environ.get("ARAD_ELASTICSEARCH_URL", os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
+ES_URL = os.environ.get(
+    "ARAD_ELASTICSEARCH_URL", os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+)
 
 
 @pytest.fixture

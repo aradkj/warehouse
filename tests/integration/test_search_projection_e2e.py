@@ -21,7 +21,9 @@ from shared.infrastructure.cache.redis import RedisCacheAdapter
 
 pytestmark = [pytest.mark.integration, pytest.mark.elasticsearch, pytest.mark.redis]
 
-ES_URL = os.environ.get("ARAD_ELASTICSEARCH_URL", os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
+ES_URL = os.environ.get(
+    "ARAD_ELASTICSEARCH_URL", os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+)
 REDIS_URL = os.environ.get("ARAD_REDIS_URL", "redis://localhost:6379/0")
 
 

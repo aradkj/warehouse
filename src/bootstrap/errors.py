@@ -41,6 +41,7 @@ from shared.application.errors import (
     InvalidRequest,
     MissingReference,
     NotFound,
+    SearchUnavailable,
 )
 from shared.domain.errors import CrossTenantAccess, DomainError, InvalidValue, InvariantViolation
 
@@ -51,6 +52,7 @@ logger = logging.getLogger("arad.api.errors")
 _STATUS_BY_EXCEPTION: list[tuple[type[Exception], int]] = [
     # application
     (NotFound, status.HTTP_404_NOT_FOUND),
+    (SearchUnavailable, status.HTTP_503_SERVICE_UNAVAILABLE),
     (InvalidRequest, status.HTTP_400_BAD_REQUEST),
     (IdempotencyKeyRequired, status.HTTP_400_BAD_REQUEST),
     (DuplicateResource, status.HTTP_409_CONFLICT),

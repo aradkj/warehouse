@@ -72,9 +72,7 @@ class SqlAlchemyInboxRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def is_already_processed(
-        self, *, message_id: str, consumer_name: str
-    ) -> bool:
+    async def is_already_processed(self, *, message_id: str, consumer_name: str) -> bool:
         """Return True if message has already been successfully processed by consumer_name."""
         stmt = select(inbox_messages.c.status).where(
             inbox_messages.c.message_id == message_id,
@@ -208,12 +206,9 @@ class SqlAlchemyInboxRepository:
         If worker_id is provided, ownership is strictly verified.
         Raises InboxOwnershipLostError if worker_id does not hold the active lease.
         """
-        stmt = (
-            update(inbox_messages)
-            .where(
-                inbox_messages.c.message_id == message_id,
-                inbox_messages.c.consumer_name == consumer_name,
-            )
+        stmt = update(inbox_messages).where(
+            inbox_messages.c.message_id == message_id,
+            inbox_messages.c.consumer_name == consumer_name,
         )
         if worker_id is not None:
             stmt = stmt.where(
@@ -221,9 +216,7 @@ class SqlAlchemyInboxRepository:
                 inbox_messages.c.status == "PROCESSING",
             )
         else:
-            stmt = stmt.where(
-                inbox_messages.c.status.in_(["RECEIVED", "PROCESSING"])
-            )
+            stmt = stmt.where(inbox_messages.c.status.in_(["RECEIVED", "PROCESSING"]))
 
         stmt = stmt.values(
             status="PROCESSED",
@@ -253,12 +246,9 @@ class SqlAlchemyInboxRepository:
         If worker_id is provided, ownership is verified before transitioning to FAILED.
         Raises InboxOwnershipLostError if worker_id does not hold the active lease.
         """
-        stmt = (
-            update(inbox_messages)
-            .where(
-                inbox_messages.c.message_id == message_id,
-                inbox_messages.c.consumer_name == consumer_name,
-            )
+        stmt = update(inbox_messages).where(
+            inbox_messages.c.message_id == message_id,
+            inbox_messages.c.consumer_name == consumer_name,
         )
         if worker_id is not None:
             stmt = stmt.where(
@@ -266,9 +256,7 @@ class SqlAlchemyInboxRepository:
                 inbox_messages.c.status == "PROCESSING",
             )
         else:
-            stmt = stmt.where(
-                inbox_messages.c.status.in_(["RECEIVED", "PROCESSING"])
-            )
+            stmt = stmt.where(inbox_messages.c.status.in_(["RECEIVED", "PROCESSING"]))
 
         stmt = stmt.values(
             status="FAILED",

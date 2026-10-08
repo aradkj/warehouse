@@ -120,6 +120,23 @@ class InMemoryCache(CachePort):
         self._store[key] = (val, self._now() + timedelta(seconds=secs))
         return True
 
+    async def increment(self, key: str, delta: int = 1) -> int:
+        """Atomically increment a numerical key in memory."""
+        if self.simulate_outage:
+            return 0
+        entry = self._store.get(key)
+        current = 0
+        exp = None
+        if entry is not None:
+            val, exp = entry
+            try:
+                current = int(val)
+            except (ValueError, TypeError):
+                current = 0
+        new_val = current + delta
+        self._store[key] = (new_val, exp)
+        return new_val
+
     async def acquire_lock(
         self,
         key: str,

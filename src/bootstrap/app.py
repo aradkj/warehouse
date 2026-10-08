@@ -24,7 +24,7 @@ from bootstrap.middleware import (
     CorrelationIdMiddleware,
     RequestSizeLimitMiddleware,
 )
-from bootstrap.routers import catalog, health, inventory, ordering, platform
+from bootstrap.routers import catalog, health, inventory, ordering, platform, search
 from search.adapters.elasticsearch import ElasticsearchIndexAdapter
 from search.ports.indexer import SearchIndexer
 from shared.application.events import EventDispatcher, NullEventDispatcher
@@ -124,6 +124,7 @@ def create_app(
             {"name": "catalog", "description": "Products and SKUs."},
             {"name": "inventory", "description": "Warehouses, stock, reservations."},
             {"name": "ordering", "description": "Order submission and lifecycle."},
+            {"name": "search", "description": "Search queries, reindexing, and reconciliation."},
             {"name": "health", "description": "Liveness and readiness probes."},
         ],
     )
@@ -143,6 +144,7 @@ def create_app(
     app.include_router(catalog.router, prefix=app_settings.api_prefix)
     app.include_router(inventory.router, prefix=app_settings.api_prefix)
     app.include_router(ordering.router, prefix=app_settings.api_prefix)
+    app.include_router(search.router, prefix=app_settings.api_prefix)
 
     return app
 

@@ -474,6 +474,10 @@ services:
 
       ARAD_IDEMPOTENCY_RETENTION_SECONDS: "604800"
 
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+
     profiles:
       - test
 

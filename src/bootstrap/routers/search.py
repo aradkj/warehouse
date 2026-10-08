@@ -1,0 +1,181 @@
+"""Search HTTP router.
+
+Provides tenant-isolated product search, alongside administrative reindexing
+and reconciliation endpoints.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, Response, status
+
+from bootstrap.dependencies import (
+    get_admin_context,
+    get_reconciliation_service,
+    get_reindexing_service,
+    get_search_service,
+    get_tenant_context,
+)
+from bootstrap.schemas.common import ErrorResponse
+from bootstrap.schemas.search import (
+    ProductSearchPageResponse,
+    ReconcileRequest,
+    ReconcileResponse,
+    ReindexRequest,
+    ReindexResponse,
+)
+from search.application.reconciliation import ReconciliationService
+from search.application.reindex import ReindexingService
+from search.application.service import SearchProductsService
+from shared.application.context import RequestContext
+
+router = APIRouter(prefix="/search", tags=["search"])
+
+ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    400: {"model": ErrorResponse},
+    404: {"model": ErrorResponse},
+    422: {"model": ErrorResponse},
+    503: {"model": ErrorResponse},
+}
+
+
+@router.get(
+    "/products",
+    response_model=ProductSearchPageResponse,
+    summary="Search catalog products",
+    responses=ERROR_RESPONSES,
+)
+async def search_products(
+    context: Annotated[RequestContext, Depends(get_tenant_context)],
+    search_service: Annotated[SearchProductsService, Depends(get_search_service)],
+    q: Annotated[
+        str | None,
+        Query(description="Free-text search query across name, slug, description, and SKU codes."),
+    ] = None,
+    status_filter: Annotated[
+        str | None, Query(alias="status", description="Filter by product status.")
+    ] = None,
+    sku: Annotated[str | None, Query(description="Filter by specific SKU code.")] = None,
+    page: Annotated[int, Query(ge=1, description="Page number (1-based, offset pagination).")] = 1,
+    page_size: Annotated[
+        int, Query(ge=1, le=100, description="Page size (offset pagination).")
+    ] = 20,
+    cursor: Annotated[
+        str | None,
+        Query(
+            description="Opaque pagination cursor for deterministic keyset search_after pagination."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Query(ge=1, le=100, description="Max items per page when using cursor pagination."),
+    ] = None,
+    sort_by: Annotated[
+        str, Query(description="Sort field: created_at, updated_at, name, status, slug.")
+    ] = "created_at",
+    sort_order: Annotated[str, Query(description="Sort direction: asc or desc.")] = "desc",
+) -> ProductSearchPageResponse:
+    """Execute a tenant-safe search query.
+
+    Supports both backward-compatible offset pagination (page/page_size) and
+    high-performance, tamper-safe cursor pagination (cursor/limit).
+    """
+    effective_tenant_id = str(context.require_tenant())
+    result = await search_service.search(
+        tenant_id=effective_tenant_id,
+        q=q,
+        status=status_filter,
+        sku=sku,
+        page=page,
+        page_size=page_size,
+        cursor=cursor,
+        limit=limit,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return ProductSearchPageResponse.from_page_result(result)
+
+
+@router.post(
+    "/reindex",
+    response_model=ReindexResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rebuild search index from PostgreSQL (Admin only)",
+    responses={
+        **ERROR_RESPONSES,
+        202: {"model": ReindexResponse, "description": "Accepted asynchronous reindex job"},
+    },
+)
+async def reindex_products(
+    response: Response,
+    _context: Annotated[RequestContext, Depends(get_admin_context)],
+    reindex_service: Annotated[ReindexingService, Depends(get_reindexing_service)],
+    payload: ReindexRequest = ReindexRequest(),
+) -> ReindexResponse:
+    """Administrative workflow to rebuild the search index from PostgreSQL.
+
+    Executes zero-downtime rebuild using a versioned index and an atomic alias swap.
+    If async_mode is True, dispatches a Celery task and immediately returns 202 Accepted.
+    """
+    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else None
+    if payload.async_mode:
+        from bootstrap.workers import reindex_products_task
+
+        task = reindex_products_task.delay(tenant_str, payload.retain_old_indices)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return ReindexResponse(
+            status="ACCEPTED",
+            task_id=str(task.id),
+        )
+
+    result = await reindex_service.reindex(
+        tenant_id=tenant_str,
+        retain_old_indices=payload.retain_old_indices,
+    )
+    return ReindexResponse.from_result(result)
+
+
+@router.post(
+    "/reconcile",
+    response_model=ReconcileResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reconcile PostgreSQL and Elasticsearch read models (Admin only)",
+    responses={
+        **ERROR_RESPONSES,
+        202: {
+            "model": ReconcileResponse,
+            "description": "Accepted asynchronous reconciliation job",
+        },
+    },
+)
+async def reconcile_products(
+    response: Response,
+    _context: Annotated[RequestContext, Depends(get_admin_context)],
+    reconcile_service: Annotated[ReconciliationService, Depends(get_reconciliation_service)],
+    payload: ReconcileRequest = ReconcileRequest(),
+) -> ReconcileResponse:
+    """Administrative workflow to detect and repair discrepancies.
+
+    Compares PostgreSQL (source of truth) with Elasticsearch read models in bounded chunks.
+    If async_mode is True, dispatches a Celery task and immediately returns 202 Accepted.
+    """
+    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else None
+    if payload.async_mode:
+        from bootstrap.workers import reconcile_products_task
+
+        task = reconcile_products_task.delay(tenant_str, payload.auto_repair)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return ReconcileResponse(
+            status="ACCEPTED",
+            task_id=str(task.id),
+        )
+
+    result = await reconcile_service.reconcile(
+        tenant_id=tenant_str,
+        auto_repair=payload.auto_repair,
+    )
+    return ReconcileResponse.from_result(result)
+
+
+__all__ = ["router"]

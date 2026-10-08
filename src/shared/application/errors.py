@@ -121,6 +121,12 @@ class IdempotencyKeyRequired(ApplicationError):
     code = "idempotency_key_required"
 
 
+class SearchUnavailable(ApplicationError):
+    """The search backend is temporarily unavailable or failing health probes."""
+
+    code = "search_unavailable"
+
+
 __all__ = [
     "ApplicationError",
     "ConcurrencyConflict",
@@ -131,4 +137,5 @@ __all__ = [
     "InvalidRequest",
     "MissingReference",
     "NotFound",
+    "SearchUnavailable",
 ]

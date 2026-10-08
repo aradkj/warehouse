@@ -343,17 +343,85 @@ def parse_if_match(
         ) from exc
 
 
+def get_admin_context(
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> RequestContext:
+    """Context for platform-wide administrative endpoints."""
+    if context.actor_type not in (ActorType.SYSTEM, ActorType.SERVICE_ACCOUNT):
+        raise InvalidRequest(
+            "administrative operations require system or service_account privileges",
+            details={"actor_type": str(context.actor_type)},
+        )
+    return context
+
+
+def get_catalog_search_reader(
+    database: Annotated[Database, Depends(get_database)],
+) -> Any:
+    from search.adapters.postgres import SqlAlchemyCatalogSearchReader
+
+    return SqlAlchemyCatalogSearchReader(database)
+
+
+def get_search_service(
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
+    cache: Annotated[CachePort, Depends(get_cache)],
+) -> Any:
+    from search.application.service import SearchProductsService
+
+    return SearchProductsService(
+        indexer=indexer,
+        cache=cache,
+        cache_ttl_seconds=settings.search_cache_ttl_seconds,
+        max_page_size=settings.search_max_page_size,
+    )
+
+
+def get_reindexing_service(
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
+    reader: Annotated[Any, Depends(get_catalog_search_reader)],
+    cache: Annotated[CachePort, Depends(get_cache)],
+) -> Any:
+    from search.application.reindex import ReindexingService
+
+    return ReindexingService(
+        indexer=indexer,
+        reader=reader,
+        cache=cache,
+        batch_size=settings.reindex_batch_size,
+    )
+
+
+def get_reconciliation_service(
+    indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
+    reader: Annotated[Any, Depends(get_catalog_search_reader)],
+) -> Any:
+    from search.application.reconciliation import ReconciliationService
+
+    return ReconciliationService(
+        indexer=indexer,
+        reader=reader,
+    )
+
+
 __all__ = [
     "UseCases",
     "apply_outcome",
     "build_use_cases",
+    "get_admin_context",
     "get_application_settings",
     "get_cache",
+    "get_catalog_search_reader",
     "get_clock",
     "get_database",
     "get_event_dispatcher",
+    "get_reconciliation_service",
+    "get_reindexing_service",
     "get_request_context",
     "get_search_indexer",
+    "get_search_service",
     "get_tenant_context",
     "get_transaction_scope",
     "get_use_cases",

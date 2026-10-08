@@ -13,10 +13,14 @@ from typing import Any
 
 from search.ports.indexer import SearchDocument
 
+PRODUCTS_INDEX_SCHEMA_VERSION: int = 1
 PRODUCTS_INDEX_V1: str = "products-v1"
 PRODUCTS_INDEX_ALIAS: str = "products"
 
 PRODUCTS_INDEX_MAPPINGS: dict[str, object] = {
+    "_meta": {
+        "schema_version": PRODUCTS_INDEX_SCHEMA_VERSION,
+    },
     "properties": {
         "id": {"type": "keyword"},
         "tenant_id": {"type": "keyword"},
@@ -119,6 +123,7 @@ class ProductSearchDocument:
 __all__ = [
     "PRODUCTS_INDEX_ALIAS",
     "PRODUCTS_INDEX_MAPPINGS",
+    "PRODUCTS_INDEX_SCHEMA_VERSION",
     "PRODUCTS_INDEX_V1",
     "ProductSearchDocument",
     "build_product_document_id",

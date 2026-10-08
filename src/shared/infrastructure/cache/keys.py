@@ -96,6 +96,29 @@ class CacheKeyBuilder:
             )
         return self.resource(tenant_id, "inventory", sku_id)
 
+    def search_version(self, tenant_id: uuid.UUID | str) -> str:
+        """Build cache key tracking the generation/version of a tenant's search index."""
+        tenant_str = _coerce_id(tenant_id, "tenant_id")
+        return f"{self._prefix}:{tenant_str}:search:_version"
+
+    def search(
+        self,
+        tenant_id: uuid.UUID | str,
+        resource_type: str,
+        query_hash: str,
+        version: int | None = None,
+    ) -> str:
+        """Build cache key for a tenant-scoped search query.
+
+        Format: v{version}:{tenant_id}:search:{resource_type}:v{gen}:{query_hash}
+        """
+        tenant_str = _coerce_id(tenant_id, "tenant_id")
+        res_str = _sanitize_segment(resource_type.lower(), "resource_type")
+        hash_str = _sanitize_segment(query_hash, "query_hash")
+        if version is not None:
+            return f"{self._prefix}:{tenant_str}:search:{res_str}:v{version}:{hash_str}"
+        return f"{self._prefix}:{tenant_str}:search:{res_str}:{hash_str}"
+
     def lock(self, key: str) -> str:
         """Build distributed lock key corresponding to a cache key."""
         return f"lock:{key}"

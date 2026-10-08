@@ -373,13 +373,17 @@ async def test_failure_recording_survives_business_rollback(database_handle: Dat
     # Verify failure is durably recorded in database
     async with database_handle.new_scope() as verify_scope:
         row = (
-            await verify_scope.session.execute(
-                select(inbox_messages).where(
-                    inbox_messages.c.message_id == msg_id,
-                    inbox_messages.c.consumer_name == consumer,
+            (
+                await verify_scope.session.execute(
+                    select(inbox_messages).where(
+                        inbox_messages.c.message_id == msg_id,
+                        inbox_messages.c.consumer_name == consumer,
+                    )
                 )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
     assert row is not None
     assert row["status"] == "FAILED"

@@ -286,6 +286,7 @@ class TestOrderLifecycle:
         assert cancelled.view.status is OrderStatus.CANCELLED
         assert shop.stock_of() == (2, 2, 0)
         assert reservation.status is ReservationStatus.ACTIVE
+
     async def test_cancellation_is_idempotent(self) -> None:
         shop = await _build_shop(on_hand=1)
         submitted = await shop.app.use_cases.create_order(order_command(shop, 4))

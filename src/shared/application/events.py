@@ -25,9 +25,7 @@ class EventDispatcher(Protocol):
     surrounding transaction commits.
     """
 
-    async def dispatch(
-        self, events: tuple[DomainEvent, ...], *, context: Any = None
-    ) -> None:
+    async def dispatch(self, events: tuple[DomainEvent, ...], *, context: Any = None) -> None:
         """Publish the given events (at-least-once in later phases)."""
         ...
 
@@ -41,9 +39,7 @@ class NullEventDispatcher:
 
     __slots__ = ()
 
-    async def dispatch(
-        self, events: tuple[DomainEvent, ...], *, context: Any = None
-    ) -> None:
+    async def dispatch(self, events: tuple[DomainEvent, ...], *, context: Any = None) -> None:
         return None
 
 

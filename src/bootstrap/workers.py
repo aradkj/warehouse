@@ -70,7 +70,7 @@ def expire_reservations_task(self: Any) -> int:
         return asyncio.run(_run_expire_reservations())
     except Exception as exc:
         logger.error("Error in expire_reservations_task: %s", exc, exc_info=True)
-        raise self.retry(exc=exc, countdown=2 ** self.request.retries) from exc
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
 
 
 async def _run_outbox_relay() -> None:
@@ -158,6 +158,109 @@ async def _run_search_consumer() -> None:
         await database.dispose()
 
 
+async def _run_reindex(
+    tenant_id: str | None = None, retain_old_indices: bool = False
+) -> dict[str, Any]:
+    """Execute full reindex from PostgreSQL to Elasticsearch."""
+    from search.adapters.elasticsearch import ElasticsearchIndexAdapter
+    from search.adapters.postgres import SqlAlchemyCatalogSearchReader
+    from search.application.reindex import ReindexingService
+    from shared.infrastructure.cache.redis import RedisCacheAdapter
+
+    settings = get_settings()
+    database = Database(settings.database_url)
+    indexer = ElasticsearchIndexAdapter.from_settings(settings)
+    reader = SqlAlchemyCatalogSearchReader(database)
+    cache = RedisCacheAdapter.from_settings(settings) if settings.redis_url else None
+
+    try:
+        service = ReindexingService(
+            indexer=indexer,
+            reader=reader,
+            cache=cache,
+            batch_size=settings.reindex_batch_size,
+        )
+        result = await service.reindex(
+            tenant_id=tenant_id,
+            retain_old_indices=retain_old_indices,
+        )
+        return {
+            "index_name": result.index_name,
+            "alias": result.alias,
+            "total_indexed": result.total_indexed,
+            "status": result.status,
+        }
+    finally:
+        await indexer.close()
+        if cache:
+            await cache.close()
+        await database.dispose()
+
+
+@celery_app.task(
+    name="search.reindex_products_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+)
+def reindex_products_task(
+    self: Any,
+    tenant_id: str | None = None,
+    retain_old_indices: bool = False,
+) -> dict[str, Any]:
+    """Celery background task to rebuild search index from PostgreSQL."""
+    try:
+        return asyncio.run(_run_reindex(tenant_id, retain_old_indices))
+    except Exception as exc:
+        logger.error("Error in reindex_products_task: %s", exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
+
+
+async def _run_reconcile(tenant_id: str | None = None, auto_repair: bool = False) -> dict[str, Any]:
+    """Execute reconciliation between PostgreSQL and Elasticsearch."""
+    from search.adapters.elasticsearch import ElasticsearchIndexAdapter
+    from search.adapters.postgres import SqlAlchemyCatalogSearchReader
+    from search.application.reconciliation import ReconciliationService
+
+    settings = get_settings()
+    database = Database(settings.database_url)
+    indexer = ElasticsearchIndexAdapter.from_settings(settings)
+    reader = SqlAlchemyCatalogSearchReader(database)
+
+    try:
+        service = ReconciliationService(indexer=indexer, reader=reader)
+        result = await service.reconcile(tenant_id=tenant_id, auto_repair=auto_repair)
+        return {
+            "total_authoritative": result.total_authoritative,
+            "total_search": result.total_search,
+            "matched": result.matched,
+            "discrepancies_count": len(result.discrepancies),
+            "repaired_count": result.repaired_count,
+        }
+    finally:
+        await indexer.close()
+        await database.dispose()
+
+
+@celery_app.task(
+    name="search.reconcile_products_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+)
+def reconcile_products_task(
+    self: Any,
+    tenant_id: str | None = None,
+    auto_repair: bool = False,
+) -> dict[str, Any]:
+    """Celery background task to reconcile PostgreSQL and Elasticsearch read models."""
+    try:
+        return asyncio.run(_run_reconcile(tenant_id, auto_repair))
+    except Exception as exc:
+        logger.error("Error in reconcile_products_task: %s", exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``python -m bootstrap.workers`` / ``arad-worker``."""
     parser = argparse.ArgumentParser(
@@ -167,13 +270,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["relay", "expire-reservations", "search-consumer", "help"],
+        choices=[
+            "relay",
+            "expire-reservations",
+            "search-consumer",
+            "reindex",
+            "reconcile",
+            "help",
+        ],
         default="relay",
-        help="Command to run: 'relay', 'expire-reservations', 'search-consumer'",
+        help="Command to run: relay, expire-reservations, search-consumer, reindex, reconcile",
     )
+    parser.add_argument("--tenant-id", type=str, default=None, help="Optional tenant ID scope")
+    parser.add_argument(
+        "--retain-old", action="store_true", help="Retain old indices after reindex"
+    )
+    parser.add_argument(
+        "--auto-repair",
+        action="store_true",
+        help="Automatically repair discrepancies during reconciliation",
+    )
+
     args = parser.parse_args(argv)
     settings = get_settings()
     from bootstrap.logging import configure_logging
+
     configure_logging(level=settings.log_level, json_output=settings.log_json)
 
     if args.command == "relay":
@@ -188,6 +309,16 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "search-consumer":
         logger.info("Starting search projection consumer...")
         asyncio.run(_run_search_consumer())
+        return 0
+    elif args.command == "reindex":
+        logger.info("Running reindex from PostgreSQL to Elasticsearch...")
+        res = asyncio.run(_run_reindex(args.tenant_id, args.retain_old))
+        print(f"Reindex complete: {res}")
+        return 0
+    elif args.command == "reconcile":
+        logger.info("Running reconciliation between PostgreSQL and Elasticsearch...")
+        res = asyncio.run(_run_reconcile(args.tenant_id, args.auto_repair))
+        print(f"Reconciliation complete: {res}")
         return 0
     else:
         parser.print_help()

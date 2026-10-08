@@ -122,6 +122,22 @@ class Settings(BaseSettings):
         default=3,
         description="Maximum retry attempts on transient Elasticsearch network errors.",
     )
+    search_cache_ttl_seconds: int = Field(
+        default=60,
+        description="Cache TTL in seconds for search query results.",
+    )
+    search_max_page_size: int = Field(
+        default=100,
+        description="Maximum permitted page size for search queries.",
+    )
+    reindex_batch_size: int = Field(
+        default=200,
+        description="Batch size for reindexing products from PostgreSQL.",
+    )
+    reconciliation_batch_size: int = Field(
+        default=200,
+        description="Batch size for reconciling PostgreSQL and Elasticsearch read models.",
+    )
 
     # -- tests -------------------------------------------------------------
     test_database_url: str = "postgresql+asyncpg://arad:arad@localhost:5432/arad_test"

@@ -194,6 +194,15 @@ class RedisCacheAdapter(CachePort):
             logger.warning("Redis EXPIRE failed for key '%s': %s", key, exc)
             return False
 
+    async def increment(self, key: str, delta: int = 1) -> int:
+        """Atomically increment a numerical key, creating it if it does not exist."""
+        try:
+            res = await self._redis.incrby(key, delta)
+            return int(res)
+        except (RedisError, TimeoutError, OSError) as exc:
+            logger.warning("Redis INCRBY failed for key '%s': %s", key, exc)
+            return 0
+
     async def acquire_lock(
         self,
         key: str,

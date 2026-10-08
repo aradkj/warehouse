@@ -98,7 +98,5 @@ async def test_transaction_rollback_leaves_no_outbox_events(
         pass
 
     # Verify 0 outbox events were written
-    events_count = await count(
-        admin_engine, "outbox_events", tenant_id=test_tenant_id
-    )
+    events_count = await count(admin_engine, "outbox_events", tenant_id=test_tenant_id)
     assert events_count == 0

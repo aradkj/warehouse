@@ -183,10 +183,7 @@ async def test_redis_concurrent_get_or_set_stampede_protection(
         return {"data": "expensive-result"}
 
     # Launch 5 concurrent callers simultaneously
-    tasks = [
-        redis_adapter.get_or_set(key, expensive_computation, ttl=60)
-        for _ in range(5)
-    ]
+    tasks = [redis_adapter.get_or_set(key, expensive_computation, ttl=60) for _ in range(5)]
     results = await asyncio.gather(*tasks)
 
     # All 5 callers received identical computed data

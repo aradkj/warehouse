@@ -158,10 +158,7 @@ class SqlAlchemyOutboxRepository:
         lock_stmt: Select[Any] = (
             select(outbox_events.c.id)
             .where(
-                (
-                    (outbox_events.c.status == "PENDING")
-                    & (outbox_events.c.available_at <= now)
-                )
+                ((outbox_events.c.status == "PENDING") & (outbox_events.c.available_at <= now))
                 | (
                     (outbox_events.c.status == "CLAIMED")
                     & (outbox_events.c.claimed_at <= stale_threshold)

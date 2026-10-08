@@ -135,10 +135,10 @@ async def test_outbox_backoff_and_jitter(database_handle: Database) -> None:
         from shared.infrastructure.db.tables import outbox_events
 
         row = (
-            await scope.session.execute(
-                select(outbox_events).where(outbox_events.c.id == evt_id)
-            )
-        ).mappings().first()
+            (await scope.session.execute(select(outbox_events).where(outbox_events.c.id == evt_id)))
+            .mappings()
+            .first()
+        )
 
     assert row is not None
     assert row["status"] == "PENDING"

@@ -109,6 +109,10 @@ class CachePort(Protocol):
         """Update the time-to-live for an existing key."""
         ...
 
+    async def increment(self, key: str, delta: int = 1) -> int:
+        """Atomically increment a numerical key, creating it if it does not exist."""
+        ...
+
     async def acquire_lock(
         self,
         key: str,

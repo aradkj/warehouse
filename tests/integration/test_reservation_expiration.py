@@ -90,9 +90,7 @@ async def test_expired_reservation_is_released_and_stock_restored(
         )
     )
     await use_cases.activate_product(
-        ChangeProductStateCommand(
-            tenant_id=tenant_uuid, context=ctx, product_id=product.view.id
-        )
+        ChangeProductStateCommand(tenant_id=tenant_uuid, context=ctx, product_id=product.view.id)
     )
     sku = await use_cases.create_sku(
         CreateSkuCommand(
@@ -142,6 +140,7 @@ async def test_expired_reservation_is_released_and_stock_restored(
         from sqlalchemy import update
 
         from inventory.adapters.persistence.tables import reservations
+
         past_expires = datetime.now(UTC) - timedelta(seconds=10)
         past_created = past_expires - timedelta(minutes=10)
         await update_scope.session.execute(
@@ -254,9 +253,7 @@ async def test_active_future_reservation_is_not_expired(
     assert outcome.view == 0
 
     # Reservation remains ACTIVE
-    status = await scalar(
-        admin_engine, "SELECT status FROM reservations WHERE id = :id", id=res_id
-    )
+    status = await scalar(admin_engine, "SELECT status FROM reservations WHERE id = :id", id=res_id)
     assert status == ReservationStatus.ACTIVE.value
 
     # Stock reserved remains 3
@@ -337,6 +334,7 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
         from sqlalchemy import update
 
         from inventory.adapters.persistence.tables import reservations
+
         past_expires = datetime.now(UTC) - timedelta(seconds=10)
         past_created = past_expires - timedelta(minutes=10)
         await update_scope.session.execute(
@@ -365,4 +363,3 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
         admin_engine, "SELECT reserved FROM inventory_items WHERE sku_id = :sku", sku=sku.view.id
     )
     assert reserved == 0
-

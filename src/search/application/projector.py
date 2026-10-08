@@ -71,13 +71,16 @@ class ProductSearchProjector:
                 await self.on_sku_deactivated(event)
             case _:
                 logger.debug("Unhandled event type in projector: %s", type(event).__name__)
+                return
+
+        await self._bump_search_version(str(event.tenant_id))
 
     async def _handle_event_dict(self, data: dict[str, Any]) -> None:
         """Handle raw event dictionary from message queue."""
         event_name = data.get("event_name") or data.get("event_type") or data.get("type", "")
         payload = data.get("payload", data)
 
-        tenant_id = str(payload.get("tenant_id", ""))
+        tenant_id = str(payload.get("tenant_id") or data.get("tenant_id") or "")
         if not tenant_id:
             logger.warning("Event missing tenant_id: %s", event_name)
             return
@@ -181,6 +184,9 @@ class ProductSearchProjector:
 
             case _:
                 logger.debug("Unhandled event name in projector: %s", event_name)
+                return
+
+        await self._bump_search_version(tenant_id)
 
     async def on_product_created(self, event: ProductCreated) -> None:
         """Handle ProductCreated domain event."""
@@ -343,6 +349,21 @@ class ProductSearchProjector:
             await self._cache.delete(key)
         except Exception:
             logger.warning("Failed to invalidate cache key %s; ignoring error", key, exc_info=True)
+
+    async def _bump_search_version(self, tenant_id: str) -> None:
+        """Bump tenant's search cache generation/version so old search keys expire naturally."""
+        if self._cache is None:
+            return
+        try:
+            version_key = default_key_builder.search_version(tenant_id)
+            await self._cache.increment(version_key)
+            logger.debug("Bumped search cache version for tenant %s", tenant_id)
+        except Exception:
+            logger.warning(
+                "Failed to increment search cache version for tenant %s; ignoring error",
+                tenant_id,
+                exc_info=True,
+            )
 
 
 __all__ = ["ProductSearchProjector"]

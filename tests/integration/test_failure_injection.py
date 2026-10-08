@@ -128,9 +128,7 @@ async def test_failure_injection_rabbitmq_outage_does_not_lose_committed_events(
             now=now,
         )
         assert c1 is True
-        await inbox_repo.mark_processed(
-            message_id=msg_id, consumer_name=consumer_name, now=now
-        )
+        await inbox_repo.mark_processed(message_id=msg_id, consumer_name=consumer_name, now=now)
         await claim_scope.commit()
 
     # Second consumer pass (duplicate redelivery)

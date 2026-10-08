@@ -6,10 +6,12 @@ from search.adapters.messaging import (
     CATALOG_EVENT_TYPES,
     create_search_projection_consumer,
 )
+from search.adapters.postgres import SqlAlchemyCatalogSearchReader
 
 __all__ = [
     "CATALOG_EVENT_TYPES",
     "ElasticsearchIndexAdapter",
     "InMemorySearchIndexer",
+    "SqlAlchemyCatalogSearchReader",
     "create_search_projection_consumer",
 ]

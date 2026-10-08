@@ -54,9 +54,7 @@ async def readyz(
         logger.warning("readiness probe failed: the database is unreachable", exc_info=True)
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         checks["database"] = "unreachable"
-        return HealthResponse(
-            status="degraded", environment=settings.environment, checks=checks
-        )
+        return HealthResponse(status="degraded", environment=settings.environment, checks=checks)
 
     # Cache is an accelerator: Redis outage degrades cache without failing readiness (Section 29)
     try:
@@ -65,9 +63,7 @@ async def readyz(
     except Exception:
         checks["cache"] = "unreachable"
 
-    return HealthResponse(
-        status="ready", environment=settings.environment, checks=checks
-    )
+    return HealthResponse(status="ready", environment=settings.environment, checks=checks)
 
 
 logger = logging.getLogger("arad.api.health")

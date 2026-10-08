@@ -76,6 +76,20 @@ PostgreSQL (Source of Truth)
 - **`ProductSearchProjector`**: Subscribes to Catalog domain events (`ProductCreated`, `ProductRevised`, `ProductActivated`, `ProductArchived`, `SkuCreated`, `SkuPriceChanged`, `SkuActivated`, `SkuDeactivated`), updating Elasticsearch and triggering targeted Redis cache invalidation.
 - **Worker command**: `python -m bootstrap.workers search-consumer` runs the idempotent consumer listening to `arad.search`.
 
+### Part 3: Search API, Search Queries, Reindexing & Reconciliation
+- **Tenant-Scoped Search API**: `GET /search/products` with query params `q`, `page`, `page_size`, `sort_by`, `sort_order`, `status`, `sku`.
+  - Strict tenant isolation: Tenant identity is resolved from authenticated context and mandatorily enforced on all Elasticsearch queries.
+  - Sorting allowlist: `created_at`, `updated_at`, `name`, `status`, `slug`.
+  - Result DTOs: Decoupled `SearchPageResult` with no raw Elasticsearch internals or shard info leaked.
+- **Search Cache**: Cache-aside via `CachePort` under key `v1:{tenant}:search:products:{hash}`. Degrades gracefully to Elasticsearch if Redis is unavailable.
+- **Zero-Downtime Reindexing**: `POST /search/reindex` or `python -m bootstrap.workers reindex`.
+  - Blue/green alias strategy: Reads authoritative records from PostgreSQL in memory-safe batches, builds search documents, bulk-indexes into `products-{timestamp}`, validates counts, atomically swaps the `products` alias, and cleans up superseded indices.
+  - Failure safety: Aborted or failed rebuilds roll back and never switch into production.
+- **Drift Reconciliation & Unidirectional Repair**: `POST /search/reconcile` or `python -m bootstrap.workers reconcile`.
+  - Bounded batch comparison between PostgreSQL authoritative keys and Elasticsearch index.
+  - Detects `missing_in_elasticsearch`, `missing_in_postgresql`, `version_mismatch`, and `tenant_mismatch`.
+  - Unidirectional auto-repair: Restores missing/stale documents from PostgreSQL into Elasticsearch with `force=True`. PostgreSQL is immutable and never modified by reconciliation.
+
 ---
 
 ## Testing
@@ -89,7 +103,8 @@ Runs the full test suite including:
 - Phase 2 asynchronous processing: 24 tests
 - Phase 3 Part 1 Redis caching: 30 tests
 - Phase 3 Part 2 Elasticsearch search projections: 15 tests
-- **Total: 344 passed tests**
+- Phase 3 Part 3 Search API, reindexing & reconciliation: 20 tests
+- **Total: 364 passed tests**
 
 ---
 
