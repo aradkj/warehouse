@@ -155,6 +155,8 @@ async def _run_search_consumer() -> None:
                     await consumer.process_message(message)
     finally:
         await indexer.close()
+        if cache is not None:
+            await cache.close()
         await database.dispose()
 
 

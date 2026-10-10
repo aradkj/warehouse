@@ -74,11 +74,8 @@ def get_clock() -> Clock:
     return _clock
 
 
-def get_event_dispatcher(request: Request) -> EventDispatcher:
-    dispatcher = getattr(request.app.state, "event_dispatcher", None)
-    if dispatcher is None:
-        return NullEventDispatcher()
-    return dispatcher
+def get_event_dispatcher(request: Request) -> EventDispatcher | None:
+    return getattr(request.app.state, "event_dispatcher", None)
 
 
 def get_database(request: Request) -> Database:
@@ -303,7 +300,7 @@ def get_use_cases(
     settings: Annotated[Settings, Depends(get_application_settings)],
     scope: Annotated[SqlAlchemyTransactionScope, Depends(get_transaction_scope)],
     clock: Annotated[Clock, Depends(get_clock)],
-    events: Annotated[EventDispatcher, Depends(get_event_dispatcher)],
+    events: Annotated[EventDispatcher | None, Depends(get_event_dispatcher)],
 ) -> UseCases:
     return build_use_cases(settings=settings, clock=clock, scope=scope, events=events)
 

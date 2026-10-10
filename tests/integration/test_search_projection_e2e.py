@@ -143,3 +143,75 @@ async def test_projection_indexes_es_and_invalidates_redis(
     doc = await es_adapter.get_document(index_alias=e2e_index, document_id=doc_id)
     assert doc is not None
     assert doc["skus"][0]["unit_price_minor"] == 11000
+
+
+async def test_search_consumer_message_processing_and_idempotency(
+    es_adapter: ElasticsearchIndexAdapter,
+    redis_adapter: RedisCacheAdapter,
+    e2e_index: str,
+) -> None:
+    import json
+    from search.adapters.messaging import create_search_projection_consumer
+    from shared.infrastructure.db.session import Database
+    from tests.conftest import test_database_url as get_test_database_url
+    from tests.integration.test_rabbitmq_retry import FakeIncomingMessage
+
+    db = Database(get_test_database_url(), pool_size=2)
+    try:
+        consumer, projector = create_search_projection_consumer(
+            database=db,
+            indexer=es_adapter,
+            cache=redis_adapter,
+        )
+        projector._index_alias = e2e_index
+
+        t_id = str(uuid.uuid4())
+        p_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+
+        from sqlalchemy import text
+        async with db.new_scope() as scope:
+            await scope.session.execute(
+                text(
+                    "INSERT INTO tenants (id, slug, name, status, version) "
+                    "VALUES (:id, :slug, 'Consumer Test Tenant', 'ACTIVE', 1)"
+                ),
+                {"id": uuid.UUID(t_id), "slug": f"consumer-{uuid.uuid4().hex[:6]}"},
+            )
+            await scope.commit()
+
+        payload = {
+            "event_id": event_id,
+            "event_type": "ProductCreated",
+            "tenant_id": t_id,
+            "schema_version": 1,
+            "correlation_id": str(uuid.uuid4()),
+            "payload": {
+                "tenant_id": t_id,
+                "product_id": p_id,
+                "slug": "ergonomic-chair",
+                "name": "Ergonomic Chair",
+                "version": 1,
+            },
+        }
+
+        msg = FakeIncomingMessage(body=json.dumps(payload).encode("utf-8"), message_id=event_id)
+
+        # 1. First delivery
+        await consumer.process_message(msg)
+        assert msg.acked is True
+
+        # Check ES doc
+        doc_id = f"{t_id}:{p_id}"
+        doc = await es_adapter.get_document(index_alias=e2e_index, document_id=doc_id)
+        assert doc is not None
+        assert doc["name"] == "Ergonomic Chair"
+        assert doc["slug"] == "ergonomic-chair"
+
+        # 2. Duplicate delivery (should be recognized as duplicate and acked safely)
+        dup_msg = FakeIncomingMessage(body=json.dumps(payload).encode("utf-8"), message_id=event_id)
+        await consumer.process_message(dup_msg)
+        assert dup_msg.acked is True
+    finally:
+        await db.dispose()
+

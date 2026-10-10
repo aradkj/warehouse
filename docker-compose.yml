@@ -2,14 +2,18 @@
 # Phase 1 runtime: the API and its PostgreSQL system of record.
 #
 # Services:
-#   postgres      : PostgreSQL source of truth
-#   migrate       : one-shot Alembic migration runner for the application DB
-#   api           : production runtime image
-#   test-migrate  : one-shot Alembic migration runner for the test DB
-#   test          : isolated test environment (pytest/dev dependencies only)
-#
-# Phase 2+ services are deliberately absent:
-# no broker, no cache, no search cluster.
+#   postgres        : PostgreSQL source of truth
+#   migrate         : one-shot Alembic migration runner for the application DB
+#   api             : production runtime image
+#   test-migrate    : one-shot Alembic migration runner for the test DB
+#   test            : isolated test environment (pytest/dev dependencies only)
+#   rabbitmq        : RabbitMQ message broker
+#   redis           : Redis cache and lock service
+#   elasticsearch   : Elasticsearch search cluster
+#   outbox-relay    : Transactional outbox relay worker
+#   search-consumer : RabbitMQ search projection consumer worker
+#   worker          : Celery background worker
+#   beat            : Celery beat periodic scheduler
 #
 # Commands:
 #
@@ -311,6 +315,52 @@ services:
         "-m",
         "bootstrap.workers",
         "relay"
+      ]
+
+    healthcheck:
+      disable: true
+
+
+  # ----------------------------------------------------
+  # Search Projection Consumer
+  # ----------------------------------------------------
+  search-consumer:
+    build:
+      context: .
+      target: runtime
+
+    image: arad-api:local
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
+      ARAD_REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://redis:6379/0
+      ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+
+    command:
+      [
+        "python",
+        "-m",
+        "bootstrap.workers",
+        "search-consumer"
       ]
 
     healthcheck:

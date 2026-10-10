@@ -129,7 +129,7 @@ def create_app(
         ],
     )
     app.state.settings = app_settings
-    app.state.event_dispatcher = event_dispatcher or NullEventDispatcher()
+    app.state.event_dispatcher = event_dispatcher
 
     # Middleware runs outermost-first: correlation id first so that even a
     # rejected request is logged with an id, then the size guard, then access logs.
