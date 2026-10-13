@@ -92,6 +92,9 @@ services:
         "head"
       ]
 
+    volumes:
+      - ./migrations:/app/migrations
+
     restart: "no"
 
 
@@ -132,6 +135,8 @@ services:
 
       ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_URL: http://elasticsearch:9200
+
+      ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
 
     ports:
       - "8000:8000"
@@ -193,6 +198,9 @@ services:
         "upgrade",
         "head"
       ]
+
+    volumes:
+      - ./migrations:/app/migrations
 
     restart: "no"
 
@@ -527,6 +535,8 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+      - ./migrations:/app/migrations
+      - ./pyproject.toml:/app/pyproject.toml
 
     profiles:
       - test

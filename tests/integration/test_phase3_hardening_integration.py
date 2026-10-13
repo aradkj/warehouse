@@ -288,9 +288,23 @@ async def test_api_async_reindex_mode(
     mock_task.id = "mock-celery-job-12345"
     monkeypatch.setattr(workers.reindex_products_task, "delay", lambda *a, **k: mock_task)
 
+    from bootstrap.config import Settings
+    from identity.infrastructure.security import TokenService
+
+    settings = Settings()
+    token_service = TokenService(
+        secret=settings.auth_jwt_secret,
+        algorithm=settings.auth_jwt_algorithm,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
+    )
+    token = token_service.create_access_token(
+        {"sub": str(uuid.uuid4()), "type": "system", "role": "ADMIN", "permissions": ["*"]}
+    )
+
     resp = await client.post(
         "/v1/search/reindex",
-        headers={"X-Actor-Type": "system"},
+        headers={"Authorization": f"Bearer {token}"},
         json={"async_mode": True},
     )
     assert resp.status_code == 202

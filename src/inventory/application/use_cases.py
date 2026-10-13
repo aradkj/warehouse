@@ -115,6 +115,19 @@ class AdjustInventory(UseCase[AdjustInventoryCommand, AdjustmentView, InventoryU
         if not await uow.sku_exists(tenant_id=command.tenant_id, sku_id=command.sku_id):
             raise NotFound("sku", command.sku_id)
 
+        await self._authorize(
+            command.context,
+            action="inventory.adjust",
+            resource_type="inventory",
+            resource_id=str(command.sku_id),
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={
+                "warehouse_id": str(command.warehouse_id),
+                "sku_id": str(command.sku_id),
+                "quantity_delta": command.quantity_delta,
+            },
+        )
+
         item, _created = await uow.inventory_items.get_or_register_for_update(
             tenant_id=command.tenant_id,
             warehouse_id=command.warehouse_id,
@@ -173,12 +186,14 @@ class ReserveInventory(
         idempotency_retention: timedelta = DEFAULT_IDEMPOTENCY_RETENTION,
         default_ttl_seconds: int = 1800,
         max_ttl_seconds: int = 86_400,
+        authorizer: Any | None = None,
     ) -> None:
         super().__init__(
             uow_factory=uow_factory,
             clock=clock,
             events=events,
             idempotency_retention=idempotency_retention,
+            authorizer=authorizer,
         )
         self._default_ttl_seconds = default_ttl_seconds
         self._max_ttl_seconds = max_ttl_seconds
@@ -189,6 +204,17 @@ class ReserveInventory(
         now = self._clock.now()
         if not command.requirements:
             raise InvalidRequest("at least one stock requirement is required")
+
+        await self._authorize(
+            command.context,
+            action="reservations.create",
+            resource_type="reservations",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={
+                "requirement_count": len(command.requirements),
+                "warehouse_ids": [str(w) for w in command.warehouse_ids] if command.warehouse_ids else [],
+            },
+        )
         if command.warehouse_ids:
             for warehouse_id in command.warehouse_ids:
                 await _require_active_warehouse(uow, command.tenant_id, warehouse_id)
@@ -303,6 +329,17 @@ class ReleaseReservation(UseCase[ReleaseReservationCommand, ReservationView, Inv
         reservation = await _require_reservation_for_update(
             uow, command.tenant_id, command.reservation_id
         )
+
+        await self._authorize(
+            command.context,
+            action="reservations.release",
+            resource_type="reservations",
+            resource_id=str(reservation.id),
+            resource_tenant_id=reservation.tenant_id,
+            resource_attributes={
+                "status": reservation.status.value,
+            },
+        )
         if reservation.status is ReservationStatus.RELEASED:
             return Executed(
                 view=ReservationView.of(reservation),
@@ -364,6 +401,17 @@ class ConfirmReservation(UseCase[ConfirmReservationCommand, ReservationView, Inv
         reservation = await _require_reservation_for_update(
             uow, command.tenant_id, command.reservation_id
         )
+
+        await self._authorize(
+            command.context,
+            action="reservations.create",
+            resource_type="reservations",
+            resource_id=str(reservation.id),
+            resource_tenant_id=reservation.tenant_id,
+            resource_attributes={
+                "status": reservation.status.value,
+            },
+        )
         expected_version = reservation.version
         quantities = reservation.quantities_by_item()
         items = await _lock_reservation_items(uow, command.tenant_id, quantities.keys())
@@ -403,6 +451,7 @@ class ExpireReservations(UseCase[ExpireReservationsCommand, int, InventoryUnitOf
 
     operation = "inventory.expire_reservations"
     success_status = 200
+    bypass_rls: ClassVar[bool] = True
 
     async def _execute(
         self, uow: InventoryUnitOfWork, command: ExpireReservationsCommand

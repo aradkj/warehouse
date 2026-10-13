@@ -16,6 +16,7 @@ from bootstrap.dependencies import (
     get_reindexing_service,
     get_search_service,
     get_tenant_context,
+    require_permission,
 )
 from bootstrap.schemas.common import ErrorResponse
 from bootstrap.schemas.search import (
@@ -25,6 +26,7 @@ from bootstrap.schemas.search import (
     ReindexRequest,
     ReindexResponse,
 )
+from identity.domain.principal import Principal
 from search.application.reconciliation import ReconciliationService
 from search.application.reindex import ReindexingService
 from search.application.service import SearchProductsService
@@ -34,6 +36,8 @@ router = APIRouter(prefix="/search", tags=["search"])
 
 ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"model": ErrorResponse},
+    401: {"model": ErrorResponse},
+    403: {"model": ErrorResponse},
     404: {"model": ErrorResponse},
     422: {"model": ErrorResponse},
     503: {"model": ErrorResponse},
@@ -49,6 +53,7 @@ ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
 async def search_products(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     search_service: Annotated[SearchProductsService, Depends(get_search_service)],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.read"))],
     q: Annotated[
         str | None,
         Query(description="Free-text search query across name, slug, description, and SKU codes."),

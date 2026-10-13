@@ -19,6 +19,7 @@ from bootstrap.dependencies import (
     get_tenant_context,
     get_use_cases,
     parse_if_match,
+    require_permission,
 )
 from bootstrap.schemas.catalog import (
     ChangeSkuPriceRequest,
@@ -42,6 +43,7 @@ from catalog.application.commands import (
     ReviseProductCommand,
 )
 from catalog.domain.value_objects import ProductStatus
+from identity.domain.principal import Principal
 from shared.application.context import RequestContext
 from shared.domain.identifiers import ProductId, SkuId
 
@@ -67,6 +69,7 @@ async def create_product(
     response: Response,
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> ProductResponse:
     """Create a product in ``DRAFT``; activate it when it is ready to sell.
 
@@ -97,6 +100,7 @@ async def create_product(
 async def list_products(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.read"))],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query(description="Cursor from the previous page.")] = None,
     product_status: Annotated[
@@ -130,6 +134,7 @@ async def get_product(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     product_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.read"))],
 ) -> ProductResponse:
     """Fetch a product with its SKUs."""
     assert context.tenant_id is not None
@@ -153,6 +158,7 @@ async def revise_product(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     product_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
     expected_version: Annotated[int | None, Depends(parse_if_match)] = None,
 ) -> ProductResponse:
     """Change descriptive metadata.
@@ -187,6 +193,7 @@ async def activate_product(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     product_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> ProductResponse:
     """Move a product from ``DRAFT`` to ``ACTIVE`` so it can be sold."""
     assert context.tenant_id is not None
@@ -210,6 +217,7 @@ async def archive_product(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     product_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> ProductResponse:
     """Retire a product permanently (``ARCHIVED`` is terminal)."""
     assert context.tenant_id is not None
@@ -235,6 +243,7 @@ async def create_sku(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     product_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> SkuResponse:
     """Create the sellable unit (code + list price) of a product."""
     assert context.tenant_id is not None
@@ -264,6 +273,7 @@ async def get_sku(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     sku_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.read"))],
 ) -> SkuResponse:
     """Fetch one SKU."""
     assert context.tenant_id is not None
@@ -285,6 +295,7 @@ async def change_sku_price(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     sku_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> SkuResponse:
     """Set a new list price. Existing orders keep their pricing snapshot."""
     assert context.tenant_id is not None
@@ -312,6 +323,7 @@ async def deactivate_sku(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     sku_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> SkuResponse:
     """Make the SKU unpurchasable for new orders."""
     assert context.tenant_id is not None
@@ -333,6 +345,7 @@ async def activate_sku(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     sku_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("catalog.products.manage"))],
 ) -> SkuResponse:
     """Re-activate a previously withdrawn SKU (an explicit, allowed transition)."""
     assert context.tenant_id is not None

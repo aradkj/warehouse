@@ -28,7 +28,7 @@ class AuditEntry:
     """A single recorded business or authorization action (Phase 2+)."""
 
     audit_id: str
-    tenant_id: str
+    tenant_id: str | None
     actor_id: str
     action: str
     resource_type: str
@@ -38,6 +38,7 @@ class AuditEntry:
     occurred_at: datetime
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
+    details: dict[str, Any] | None = None
 
 
 PLANNED_PHASE = 2

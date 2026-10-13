@@ -151,10 +151,12 @@ async def test_search_consumer_message_processing_and_idempotency(
     e2e_index: str,
 ) -> None:
     import json
-    from search.adapters.messaging import create_search_projection_consumer
-    from shared.infrastructure.db.session import Database
+
     from tests.conftest import test_database_url as get_test_database_url
     from tests.integration.test_rabbitmq_retry import FakeIncomingMessage
+
+    from search.adapters.messaging import create_search_projection_consumer
+    from shared.infrastructure.db.session import Database
 
     db = Database(get_test_database_url(), pool_size=2)
     try:
@@ -170,6 +172,7 @@ async def test_search_consumer_message_processing_and_idempotency(
         event_id = str(uuid.uuid4())
 
         from sqlalchemy import text
+
         async with db.new_scope() as scope:
             await scope.session.execute(
                 text(
@@ -214,4 +217,3 @@ async def test_search_consumer_message_processing_and_idempotency(
         assert dup_msg.acked is True
     finally:
         await db.dispose()
-

@@ -27,6 +27,9 @@ dependencies = [
     "redis>=5.0.0,<6.0.0",
     "elasticsearch>=8.12.0,<9.0.0",
     "aiohttp>=3.9.0,<4.0.0",
+    # Phase 4.1: Identity & Authentication
+    "pyjwt>=2.8.0,<3.0.0",
+    "argon2-cffi>=23.1.0,<24.0.0",
 ]
 
 [project.optional-dependencies]
@@ -113,6 +116,8 @@ ignore = [
     "S101",     # assert is fine in tests
     "B008",     # FastAPI Depends() in defaults is the documented pattern
     "N818",     # exception naming: domain errors are nouns, not *Error suffixed
+    "S105",     # false positives for token_type = 'bearer'
+    "S106",     # false positives for token_type arguments
 ]
 
 [tool.ruff.lint.per-file-ignores]

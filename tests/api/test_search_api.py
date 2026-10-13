@@ -146,27 +146,42 @@ async def test_search_api_backend_failure_maps_to_503(
 
 
 async def test_admin_reindex_and_reconcile_authorization(client: httpx.AsyncClient) -> None:
-    # 1. Normal user actor -> 400 Bad Request
+    # 1. Unauthenticated request / forged header -> 401 Unauthorized (AUTH-001)
     resp_reindex_user = await client.post(
         "/v1/search/reindex",
         headers={"X-Actor-Type": "sales_channel"},
         json={},
     )
-    assert resp_reindex_user.status_code == 400
-    assert resp_reindex_user.json()["error"]["code"] == "invalid_request"
+    assert resp_reindex_user.status_code == 401
+    assert resp_reindex_user.json()["error"]["code"] == "authentication_failed"
 
-    resp_reconcile_user = await client.post(
+    resp_reconcile_forged = await client.post(
         "/v1/search/reconcile",
-        headers={"X-Actor-Type": "user"},
+        headers={"X-Actor-Type": "system"},
         json={},
     )
-    assert resp_reconcile_user.status_code == 400
-    assert resp_reconcile_user.json()["error"]["code"] == "invalid_request"
+    assert resp_reconcile_forged.status_code == 401
+    assert resp_reconcile_forged.json()["error"]["code"] == "authentication_failed"
 
-    # 2. System actor -> 200 OK
+    # 2. Authenticated system/admin token -> 200 OK
+    from bootstrap.config import Settings
+    from identity.infrastructure.security import TokenService
+
+    settings = Settings()
+    token_service = TokenService(
+        secret=settings.auth_jwt_secret,
+        algorithm=settings.auth_jwt_algorithm,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
+    )
+    token = token_service.create_access_token(
+        {"sub": str(uuid.uuid4()), "type": "system", "role": "ADMIN", "permissions": ["*"]}
+    )
+    admin_headers = {"Authorization": f"Bearer {token}"}
+
     resp_reindex_sys = await client.post(
         "/v1/search/reindex",
-        headers={"X-Actor-Type": "system"},
+        headers=admin_headers,
         json={},
     )
     assert resp_reindex_sys.status_code == 200
@@ -174,7 +189,7 @@ async def test_admin_reindex_and_reconcile_authorization(client: httpx.AsyncClie
 
     resp_reconcile_sys = await client.post(
         "/v1/search/reconcile",
-        headers={"X-Actor-Type": "system"},
+        headers=admin_headers,
         json={},
     )
     assert resp_reconcile_sys.status_code == 200

@@ -68,12 +68,14 @@ class CreateOrder(UseCase[CreateOrderCommand, OrderView, OrderingUnitOfWork]):
         events: EventDispatcher | None = None,
         idempotency_retention: timedelta = DEFAULT_IDEMPOTENCY_RETENTION,
         unavailable_policy: UnavailableStockPolicy = UnavailableStockPolicy.BACKORDER,
+        authorizer: Any | None = None,
     ) -> None:
         super().__init__(
             uow_factory=uow_factory,
             clock=clock,
             events=events,
             idempotency_retention=idempotency_retention,
+            authorizer=authorizer,
         )
         self._unavailable_policy = unavailable_policy
 
@@ -108,7 +110,24 @@ class CreateOrder(UseCase[CreateOrderCommand, OrderView, OrderingUnitOfWork]):
                     sku_id, reason=entry.not_purchasable_reason or "unavailable"
                 )
 
+        total_minor = sum(
+            catalog[line.sku_id].unit_price.amount_minor * line.quantity
+            for line in command.lines
+        )
         currency = catalog[sku_ids[0]].unit_price.currency
+
+        await self._authorize(
+            command.context,
+            action="orders.create",
+            resource_type="orders",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={
+                "line_count": len(command.lines),
+                "customer_reference": command.customer_reference,
+                "total_minor": total_minor,
+                "currency": currency,
+            },
+        )
         lines = tuple(
             OrderLine.create(
                 line_number=index,
@@ -220,6 +239,20 @@ class ConfirmOrder(UseCase[ConfirmOrderCommand, OrderView, OrderingUnitOfWork]):
         order = await _require_order_for_update(uow, command.tenant_id, command.order_id)
         expected_version = order.version
 
+        await self._authorize(
+            command.context,
+            action="orders.confirm",
+            resource_type="orders",
+            resource_id=str(order.id),
+            resource_tenant_id=order.tenant_id,
+            resource_attributes={
+                "status": order.status.value,
+                "total_minor": order.total.amount_minor,
+                "currency": order.total.currency,
+                "line_count": len(order.lines),
+            },
+        )
+
         reservation = await uow.inventory.reservation_for_order(
             tenant_id=command.tenant_id, order_id=order.id, context=command.context
         )
@@ -309,6 +342,19 @@ class CancelOrder(UseCase[CancelOrderCommand, OrderView, OrderingUnitOfWork]):
                     "actual_version": order.version,
                 },
             )
+
+        await self._authorize(
+            command.context,
+            action="orders.cancel",
+            resource_type="orders",
+            resource_id=str(order.id),
+            resource_tenant_id=order.tenant_id,
+            resource_attributes={
+                "status": order.status.value,
+                "total_minor": order.total.amount_minor,
+                "currency": order.total.currency,
+            },
+        )
 
         reservation = await uow.inventory.reservation_for_order(
             tenant_id=command.tenant_id, order_id=order.id, context=command.context

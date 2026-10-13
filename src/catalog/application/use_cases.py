@@ -45,6 +45,13 @@ class CreateProduct(UseCase[CreateProductCommand, ProductView, CatalogUnitOfWork
     async def _execute(
         self, uow: CatalogUnitOfWork, command: CreateProductCommand
     ) -> Executed[ProductView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="product",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"slug": str(command.slug), "name": command.name},
+        )
         product = Product.create(
             tenant_id=command.tenant_id,
             slug=slug_of(command.slug),
@@ -85,6 +92,13 @@ class ReviseProduct(UseCase[ReviseProductCommand, ProductView, CatalogUnitOfWork
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ReviseProductCommand
     ) -> Executed[ProductView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="product",
+            resource_id=str(command.product_id),
+            resource_tenant_id=command.tenant_id,
+        )
         product = await _require_product(
             uow, command.tenant_id, command.product_id, for_update=True
         )
@@ -133,6 +147,13 @@ class ActivateProduct(UseCase[ChangeProductStateCommand, ProductView, CatalogUni
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ChangeProductStateCommand
     ) -> Executed[ProductView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="product",
+            resource_id=str(command.product_id),
+            resource_tenant_id=command.tenant_id,
+        )
         product = await _transition_product(
             uow,
             command.tenant_id,
@@ -165,6 +186,13 @@ class ArchiveProduct(UseCase[ChangeProductStateCommand, ProductView, CatalogUnit
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ChangeProductStateCommand
     ) -> Executed[ProductView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="product",
+            resource_id=str(command.product_id),
+            resource_tenant_id=command.tenant_id,
+        )
         product = await _transition_product(
             uow,
             command.tenant_id,
@@ -197,6 +225,13 @@ class CreateSku(UseCase[CreateSkuCommand, SkuView, CatalogUnitOfWork]):
     async def _execute(
         self, uow: CatalogUnitOfWork, command: CreateSkuCommand
     ) -> Executed[SkuView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="sku",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"product_id": str(command.product_id), "code": str(command.code)},
+        )
         # The product row is locked so that "add a SKU" and "archive the product"
         # cannot interleave.
         product = await _require_product(
@@ -240,6 +275,14 @@ class ChangeSkuPrice(UseCase[ChangeSkuPriceCommand, SkuView, CatalogUnitOfWork])
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ChangeSkuPriceCommand
     ) -> Executed[SkuView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="sku",
+            resource_id=str(command.sku_id),
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"price_amount": command.unit_price_minor, "currency": command.currency},
+        )
         sku = await _require_sku(uow, command.tenant_id, command.sku_id, for_update=True)
         expected_version = sku.version
         sku.change_price(

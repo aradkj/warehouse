@@ -17,7 +17,13 @@ from datetime import datetime
 
 from catalog.domain.product import Product
 from catalog.domain.sku import Sku
+from identity.domain.membership import TenantMembership
+from identity.domain.policy import AccessPolicy
+from identity.domain.role import Role
+from identity.domain.service_account import ServiceAccount
+from identity.domain.session import UserSession
 from identity.domain.tenant import Tenant
+from identity.domain.user import User
 from inventory.domain.inventory_item import InventoryItem
 from inventory.domain.movement import InventoryMovement
 from inventory.domain.reservation import Reservation
@@ -35,11 +41,16 @@ from shared.application.idempotency import (
 )
 from shared.domain.identifiers import (
     InventoryItemId,
+    MembershipId,
     OrderId,
+    PolicyId,
     ProductId,
     ReservationId,
+    RoleId,
+    ServiceAccountId,
     SkuId,
     TenantId,
+    UserId,
     WarehouseId,
 )
 
@@ -57,11 +68,39 @@ class FakeStores:
     reservations: dict[ReservationId, Reservation] = field(default_factory=dict)
     orders: dict[OrderId, Order] = field(default_factory=dict)
     idempotency: dict[tuple[uuid.UUID, str], IdempotencyRecord] = field(default_factory=dict)
+    users: dict[UserId, User] = field(default_factory=dict)
+    memberships: dict[MembershipId, TenantMembership] = field(default_factory=dict)
+    sessions: dict[uuid.UUID, UserSession] = field(default_factory=dict)
+    service_accounts: dict[ServiceAccountId, ServiceAccount] = field(default_factory=dict)
+    roles: dict[RoleId, Role] = field(default_factory=dict)
+    policies: dict[PolicyId, AccessPolicy] = field(default_factory=dict)
+    audit_logs: list[Any] = field(default_factory=list)
     #: Version each aggregate had when it was last written. Optimistic
     #: concurrency is checked against this, not against the object in the
     #: dictionary: that object *is* the one the use case just mutated, so its
     #: version would always match and the check would never fire.
     versions: dict[uuid.UUID, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.roles:
+            from datetime import UTC, datetime
+
+            from identity.domain.role import (
+                SYSTEM_ROLES_PERMISSIONS,
+                Role,
+            )
+
+            now = datetime.now(UTC)
+            for name, perms in SYSTEM_ROLES_PERMISSIONS.items():
+                r = Role.create(
+                    name=name,
+                    description=f"System {name} role",
+                    permissions=perms,
+                    tenant_id=None,
+                    is_system=True,
+                    now=now,
+                )
+                self.roles[r.id] = r
 
     def snapshot(self) -> FakeStores:
         return copy.deepcopy(self)
@@ -76,6 +115,12 @@ class FakeStores:
         self.reservations = snapshot.reservations
         self.orders = snapshot.orders
         self.idempotency = snapshot.idempotency
+        self.users = snapshot.users
+        self.memberships = snapshot.memberships
+        self.sessions = snapshot.sessions
+        self.service_accounts = snapshot.service_accounts
+        self.roles = snapshot.roles
+        self.policies = snapshot.policies
         self.versions = snapshot.versions
 
 

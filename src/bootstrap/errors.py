@@ -32,16 +32,23 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from shared.application.errors import (
+    AccountDisabled,
     ApplicationError,
+    AuthenticationFailed,
+    CannotRemoveLastAdmin,
     ConcurrencyConflict,
     DuplicateIdempotencyKey,
     DuplicateResource,
+    Forbidden,
     IdempotencyKeyRequired,
     IdempotencyOperationInProgress,
     InvalidRequest,
+    MembershipDisabled,
     MissingReference,
     NotFound,
     SearchUnavailable,
+    TenantSuspended,
+    Unauthorized,
 )
 from shared.domain.errors import CrossTenantAccess, DomainError, InvalidValue, InvariantViolation
 
@@ -51,6 +58,12 @@ logger = logging.getLogger("arad.api.errors")
 #: lookup walks the MRO, so registering a base class covers its subclasses.
 _STATUS_BY_EXCEPTION: list[tuple[type[Exception], int]] = [
     # application
+    (AuthenticationFailed, status.HTTP_401_UNAUTHORIZED),
+    (Unauthorized, status.HTTP_401_UNAUTHORIZED),
+    (Forbidden, status.HTTP_403_FORBIDDEN),
+    (TenantSuspended, status.HTTP_403_FORBIDDEN),
+    (MembershipDisabled, status.HTTP_403_FORBIDDEN),
+    (AccountDisabled, status.HTTP_403_FORBIDDEN),
     (NotFound, status.HTTP_404_NOT_FOUND),
     (SearchUnavailable, status.HTTP_503_SERVICE_UNAVAILABLE),
     (InvalidRequest, status.HTTP_400_BAD_REQUEST),
@@ -60,6 +73,7 @@ _STATUS_BY_EXCEPTION: list[tuple[type[Exception], int]] = [
     (IdempotencyOperationInProgress, status.HTTP_409_CONFLICT),
     (ConcurrencyConflict, status.HTTP_409_CONFLICT),
     (MissingReference, status.HTTP_409_CONFLICT),
+    (CannotRemoveLastAdmin, status.HTTP_409_CONFLICT),
     # domain
     (CrossTenantAccess, status.HTTP_404_NOT_FOUND),
     (InvalidValue, status.HTTP_422_UNPROCESSABLE_CONTENT),

@@ -47,7 +47,7 @@ PRODUCTS_INDEX_MAPPINGS: dict[str, object] = {
         "created_at": {"type": "date"},
         "updated_at": {"type": "date"},
         "version": {"type": "integer"},
-    }
+    },
 }
 
 

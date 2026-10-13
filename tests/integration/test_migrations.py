@@ -117,6 +117,16 @@ EXPECTED_TABLES = {
     "idempotency_records",
     "outbox_events",
     "inbox_messages",
+    "users",
+    "tenant_memberships",
+    "user_sessions",
+    "service_accounts",
+    "roles",
+    "role_permissions",
+    "membership_roles",
+    "service_account_scopes",
+    "access_policies",
+    "audit_logs",
 }
 
 
@@ -135,7 +145,7 @@ class TestMigrations:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-        assert version == "0003_inbox_lease_and_retry"
+        assert version == "0008_postgresql_rls"
 
     async def test_the_models_and_the_migration_agree(self, scratch_database: AsyncEngine) -> None:
         """Autogenerate must find no difference between metadata and the migrated schema."""

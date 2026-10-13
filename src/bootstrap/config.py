@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ordering.domain.policies import UnavailableStockPolicy
@@ -139,6 +139,36 @@ class Settings(BaseSettings):
         description="Batch size for reconciling PostgreSQL and Elasticsearch read models.",
     )
 
+    # -- identity & authentication (Phase 4.1) -----------------------------
+    auth_jwt_secret: str = Field(
+        default="insecure-dev-secret-change-in-production-0123456789abcdef",
+        description="Secret key used to sign and verify JWT access tokens.",
+    )
+    auth_jwt_algorithm: str = Field(
+        default="HS256",
+        description="JWT signing algorithm.",
+    )
+    auth_jwt_issuer: str = Field(
+        default="arad-platform",
+        description="JWT issuer (iss claim).",
+    )
+    auth_jwt_audience: str = Field(
+        default="arad-api",
+        description="JWT audience (aud claim).",
+    )
+    auth_access_token_ttl_seconds: int = Field(
+        default=900,
+        description="Access token TTL in seconds (default 15 minutes).",
+    )
+    auth_refresh_token_ttl_seconds: int = Field(
+        default=604_800,
+        description="Refresh token TTL in seconds (default 7 days).",
+    )
+    auth_required: bool = Field(
+        default=False,
+        description="Whether authentication is strictly required on all tenant endpoints.",
+    )
+
     # -- tests -------------------------------------------------------------
     test_database_url: str = "postgresql+asyncpg://arad:arad@localhost:5432/arad_test"
 
@@ -157,6 +187,18 @@ class Settings(BaseSettings):
         if upper not in allowed:
             raise ValueError(f"log level must be one of {sorted(allowed)}")
         return upper
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> Settings:
+        if self.is_production and (
+            self.auth_jwt_secret == "insecure-dev-secret-change-in-production-0123456789abcdef"
+            or len(self.auth_jwt_secret) < 32
+        ):
+            raise ValueError(
+                "In production, ARAD_AUTH_JWT_SECRET must be configured "
+                "with a secure key of at least 32 characters"
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

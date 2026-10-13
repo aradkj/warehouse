@@ -136,7 +136,7 @@ async def test_expired_reservation_is_released_and_stock_restored(
     assert reserved_qty == 4
 
     # 3. Fast forward time by updating expires_at to past
-    async with database_handle.new_scope() as update_scope:
+    async with database_handle.new_scope(tenant_id=tenant_uuid) as update_scope:
         from sqlalchemy import update
 
         from inventory.adapters.persistence.tables import reservations
@@ -330,7 +330,7 @@ async def test_concurrent_expiration_sweep_does_not_double_release(
     res_id = res.view.reservation.id
 
     # Fast-forward expires_at to past
-    async with database_handle.new_scope() as update_scope:
+    async with database_handle.new_scope(tenant_id=tenant_uuid) as update_scope:
         from sqlalchemy import update
 
         from inventory.adapters.persistence.tables import reservations

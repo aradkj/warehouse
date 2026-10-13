@@ -24,10 +24,19 @@ from bootstrap.middleware import (
     CorrelationIdMiddleware,
     RequestSizeLimitMiddleware,
 )
-from bootstrap.routers import catalog, health, inventory, ordering, platform, search
+from bootstrap.routers import (
+    access,
+    catalog,
+    health,
+    identity,
+    inventory,
+    ordering,
+    platform,
+    search,
+)
 from search.adapters.elasticsearch import ElasticsearchIndexAdapter
 from search.ports.indexer import SearchIndexer
-from shared.application.events import EventDispatcher, NullEventDispatcher
+from shared.application.events import EventDispatcher
 from shared.infrastructure.cache.redis import RedisCacheAdapter
 from shared.infrastructure.db.session import Database
 from shared.ports.cache import CachePort
@@ -68,6 +77,19 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if app_settings.is_production:
+            from identity.infrastructure.security import PasswordHasher
+
+            hasher = PasswordHasher(allow_fallback=False)
+            try:
+                test_hash = hasher.hash("startup-check-phrase-valid")
+                if not hasher.verify("startup-check-phrase-valid", test_hash):
+                    raise RuntimeError("Argon2id startup self-test failed")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Production startup failed password-hashing integrity check: {exc}"
+                ) from exc
+
         database = Database(
             app_settings.database_url,
             pool_size=app_settings.db_pool_size,
@@ -121,6 +143,8 @@ def create_app(
         contact={"name": "Arad Platform Team"},
         openapi_tags=[
             {"name": "platform", "description": "Tenant provisioning."},
+            {"name": "identity", "description": "Authentication and user identity."},
+            {"name": "access", "description": "RBAC and ABAC access control."},
             {"name": "catalog", "description": "Products and SKUs."},
             {"name": "inventory", "description": "Warehouses, stock, reservations."},
             {"name": "ordering", "description": "Order submission and lifecycle."},
@@ -140,6 +164,8 @@ def create_app(
     register_exception_handlers(app)
 
     app.include_router(health.router)
+    app.include_router(identity.router, prefix=app_settings.api_prefix)
+    app.include_router(access.router, prefix=app_settings.api_prefix)
     app.include_router(platform.router, prefix=app_settings.api_prefix)
     app.include_router(catalog.router, prefix=app_settings.api_prefix)
     app.include_router(inventory.router, prefix=app_settings.api_prefix)

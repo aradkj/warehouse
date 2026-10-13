@@ -48,6 +48,7 @@ class RequestContext:
     #: is used for audit/correlation only - never for authorization decisions.
     actor_id: str = "unknown"
     actor_type: ActorType = ActorType.SALES_CHANNEL
+    principal: Any | None = None
     correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     causation_id: str | None = None
     idempotency_key: str | None = None

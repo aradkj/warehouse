@@ -10,16 +10,23 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from audit.adapters.in_memory import InMemoryAuditAdapter
 from shared.domain.identifiers import SkuId, TenantId
 from tests.fakes.ports import (
     FakeCatalogQuery,
     FakeInventoryItemRepository,
+    FakeMembershipRepository,
     FakeMovementRepository,
     FakeOrderRepository,
+    FakePolicyRepository,
     FakeProductRepository,
     FakeReservationRepository,
+    FakeRoleRepository,
+    FakeServiceAccountRepository,
+    FakeSessionRepository,
     FakeSkuRepository,
     FakeTenantRepository,
+    FakeUserRepository,
     FakeWarehouseRepository,
 )
 from tests.fakes.store import (
@@ -52,6 +59,13 @@ class FakeIdentityUnitOfWork(FakeUnitOfWork):
         super().__init__(scope)
         self._stores = stores
         self.tenants = FakeTenantRepository(stores)
+        self.users = FakeUserRepository(stores)
+        self.memberships = FakeMembershipRepository(stores)
+        self.sessions = FakeSessionRepository(stores)
+        self.service_accounts = FakeServiceAccountRepository(stores)
+        self.roles = FakeRoleRepository(stores)
+        self.policies = FakePolicyRepository(stores)
+        self.audit = InMemoryAuditAdapter(stores.audit_logs)
         self.idempotency = InMemoryIdempotencyStore(stores)
 
     async def __aenter__(self) -> FakeIdentityUnitOfWork:

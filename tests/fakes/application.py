@@ -24,7 +24,33 @@ from catalog.application.use_cases import (
     DeactivateSku,
     ReviseProduct,
 )
-from identity.application.use_cases import GetTenant, RegisterTenant
+from identity.application.use_cases import (
+    AssignRole,
+    AuthenticateServiceAccount,
+    AuthenticateUser,
+    ChangePassword,
+    CreateInvitation,
+    CreatePolicy,
+    CreateRole,
+    CreateServiceAccount,
+    GetPolicy,
+    GetRole,
+    GetTenant,
+    ListMemberships,
+    ListPolicies,
+    ListRoles,
+    ProvisionMembership,
+    RefreshToken,
+    RegisterTenant,
+    RegisterUser,
+    RevokeRole,
+    RevokeServiceAccount,
+    RevokeSession,
+    RotateServiceAccountSecret,
+    SelectTenant,
+    UpdatePolicyStatus,
+)
+from identity.infrastructure.security import PasswordHasher, TokenService
 from inventory.adapters.in_process import InProcessInventoryOperations
 from inventory.application.queries import (
     GetAvailability,
@@ -69,6 +95,7 @@ class FakeApplication:
     use_cases: object
     clock: FixedClock
     events: EventDispatcher
+    token_service: TokenService
     dispatched: list[object] = field(default_factory=list)
 
 
@@ -113,6 +140,15 @@ def build_fake_application(
         "idempotency_retention": idempotency_retention,
     }
 
+    hasher = PasswordHasher()
+    token_service = TokenService(
+        secret="test-in-memory-jwt-secret-at-least-32-chars-long",
+        algorithm="HS256",
+        issuer="arad-platform",
+        audience="arad-api",
+        access_token_ttl_seconds=900,
+    )
+
     use_cases = UseCases(
         create_product=CreateProduct(uow_factory=catalog_uow, **common),
         revise_product=ReviseProduct(uow_factory=catalog_uow, **common),
@@ -151,6 +187,73 @@ def build_fake_application(
         list_orders=ListOrders(uow_factory=ordering_uow, clock=fake_clock),
         register_tenant=RegisterTenant(uow_factory=identity_uow, **common),
         get_tenant=GetTenant(uow_factory=identity_uow, clock=fake_clock),
+        register_user=RegisterUser(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            hasher=hasher,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        authenticate_user=AuthenticateUser(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            hasher=hasher,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        refresh_token=RefreshToken(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        revoke_session=RevokeSession(uow_factory=identity_uow, clock=fake_clock, events=dispatcher),
+        list_memberships=ListMemberships(uow_factory=identity_uow, clock=fake_clock),
+        select_tenant=SelectTenant(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        change_password=ChangePassword(
+            uow_factory=identity_uow, clock=fake_clock, hasher=hasher, events=dispatcher
+        ),
+        create_invitation=CreateInvitation(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        provision_membership=ProvisionMembership(
+            uow_factory=identity_uow, clock=fake_clock, events=dispatcher
+        ),
+        create_service_account=CreateServiceAccount(
+            uow_factory=identity_uow, clock=fake_clock, hasher=hasher, events=dispatcher
+        ),
+        authenticate_service_account=AuthenticateServiceAccount(
+            uow_factory=identity_uow,
+            clock=fake_clock,
+            hasher=hasher,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        rotate_service_account=RotateServiceAccountSecret(
+            uow_factory=identity_uow, clock=fake_clock, hasher=hasher, events=dispatcher
+        ),
+        revoke_service_account=RevokeServiceAccount(
+            uow_factory=identity_uow, clock=fake_clock, events=dispatcher
+        ),
+        create_role=CreateRole(uow_factory=identity_uow, clock=fake_clock, events=dispatcher),
+        get_role=GetRole(uow_factory=identity_uow, clock=fake_clock),
+        list_roles=ListRoles(uow_factory=identity_uow, clock=fake_clock),
+        assign_role=AssignRole(uow_factory=identity_uow, clock=fake_clock, events=dispatcher),
+        revoke_role=RevokeRole(uow_factory=identity_uow, clock=fake_clock, events=dispatcher),
+        create_policy=CreatePolicy(uow_factory=identity_uow, clock=fake_clock, events=dispatcher),
+        get_policy=GetPolicy(uow_factory=identity_uow, clock=fake_clock),
+        list_policies=ListPolicies(uow_factory=identity_uow, clock=fake_clock),
+        update_policy_status=UpdatePolicyStatus(
+            uow_factory=identity_uow, clock=fake_clock, events=dispatcher
+        ),
     )
     return FakeApplication(
         stores=fake_stores,
@@ -158,6 +261,7 @@ def build_fake_application(
         use_cases=use_cases,
         clock=fake_clock,
         events=dispatcher,
+        token_service=token_service,
     )
 
 

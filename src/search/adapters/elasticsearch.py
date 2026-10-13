@@ -638,11 +638,7 @@ class ElasticsearchIndexAdapter(SearchIndexer):
                 src = hit.get("_source", {})
                 result[doc_id] = (str(src.get("tenant_id", "")), int(src.get("version", 1)))
 
-            next_sa = (
-                tuple(hits[-1]["sort"])
-                if len(hits) == limit and "sort" in hits[-1]
-                else None
-            )
+            next_sa = tuple(hits[-1]["sort"]) if len(hits) == limit and "sort" in hits[-1] else None
             return result, next_sa
         except (TransportError, EsConnectionError, ConnectionTimeout) as exc:
             logger.error("Failed to fetch document keys chunk from %s: %s", index_or_alias, exc)

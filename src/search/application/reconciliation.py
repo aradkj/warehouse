@@ -75,6 +75,7 @@ class ReconciliationService:
                 tenant_id=tenant_id, batch_size=self._batch_size
             )
         else:
+
             async def _single_chunk_reader() -> AsyncIterator[dict[str, tuple[str, int]]]:
                 yield await self._reader.get_authoritative_keys(tenant_id=tenant_id)
 

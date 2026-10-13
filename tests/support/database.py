@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 async def scalar(engine: AsyncEngine, sql: str, **params: Any) -> Any:
     """Run a single-value query."""
     async with engine.connect() as connection:
+        await connection.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         result = await connection.execute(text(sql), params)
         return result.scalar()
 
@@ -25,6 +26,7 @@ async def scalar(engine: AsyncEngine, sql: str, **params: Any) -> Any:
 async def rows(engine: AsyncEngine, sql: str, **params: Any) -> list[dict[str, Any]]:
     """Run a query and return the rows as dictionaries."""
     async with engine.connect() as connection:
+        await connection.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         result = await connection.execute(text(sql), params)
         return [dict(row) for row in result.mappings().all()]
 

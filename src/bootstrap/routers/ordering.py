@@ -13,6 +13,7 @@ from bootstrap.dependencies import (
     get_tenant_context,
     get_use_cases,
     parse_if_match,
+    require_permission,
 )
 from bootstrap.schemas.common import ErrorResponse
 from bootstrap.schemas.ordering import (
@@ -21,6 +22,7 @@ from bootstrap.schemas.ordering import (
     OrderPageResponse,
     OrderResponse,
 )
+from identity.domain.principal import Principal
 from ordering.application.commands import (
     CancelOrderCommand,
     ConfirmOrderCommand,
@@ -55,6 +57,7 @@ async def create_order(
     response: Response,
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    principal: Annotated[Principal, Depends(require_permission("orders.create"))],
     idempotency_key: Annotated[
         str | None,
         Header(
@@ -91,7 +94,8 @@ async def create_order(
         )
     )
     apply_outcome(response, outcome)
-    return OrderResponse.from_view(outcome.view)
+    redact = not principal.has_permission("orders.financials.read")
+    return OrderResponse.from_view(outcome.view, redact_financials=redact)
 
 
 @router.get(
@@ -103,6 +107,7 @@ async def create_order(
 async def list_orders(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    principal: Annotated[Principal, Depends(require_permission("orders.read"))],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query()] = None,
     order_status: Annotated[OrderStatus | None, Query(alias="status")] = None,
@@ -118,8 +123,9 @@ async def list_orders(
             status=order_status,
         )
     )
+    redact = not principal.has_permission("orders.financials.read")
     return OrderPageResponse(
-        items=[OrderResponse.from_view(view) for view in page.items],
+        items=[OrderResponse.from_view(view, redact_financials=redact) for view in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -133,6 +139,7 @@ async def list_orders(
 async def get_order(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    principal: Annotated[Principal, Depends(require_permission("orders.read"))],
     order_id: Annotated[UUID, Path()],
 ) -> OrderResponse:
     """Fetch an order with its lines, totals and inventory hold."""
@@ -140,7 +147,8 @@ async def get_order(
     view = await use_cases.get_order(
         GetOrderQuery(tenant_id=context.tenant_id, context=context, order_id=OrderId(order_id))
     )
-    return OrderResponse.from_view(view)
+    redact = not principal.has_permission("orders.financials.read")
+    return OrderResponse.from_view(view, redact_financials=redact)
 
 
 @router.post(
@@ -154,6 +162,7 @@ async def confirm_order(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     order_id: Annotated[UUID, Path()],
+    principal: Annotated[Principal, Depends(require_permission("orders.confirm"))],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> OrderResponse:
     """Confirm once every line is genuinely held by inventory.
@@ -170,7 +179,8 @@ async def confirm_order(
         )
     )
     apply_outcome(response, outcome)
-    return OrderResponse.from_view(outcome.view)
+    redact = not principal.has_permission("orders.financials.read")
+    return OrderResponse.from_view(outcome.view, redact_financials=redact)
 
 
 @router.post(
@@ -185,6 +195,7 @@ async def cancel_order(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     order_id: Annotated[UUID, Path()],
+    principal: Annotated[Principal, Depends(require_permission("orders.cancel"))],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     expected_version: Annotated[int | None, Depends(parse_if_match)] = None,
 ) -> OrderResponse:
@@ -205,7 +216,8 @@ async def cancel_order(
         )
     )
     apply_outcome(response, outcome)
-    return OrderResponse.from_view(outcome.view)
+    redact = not principal.has_permission("orders.financials.read")
+    return OrderResponse.from_view(outcome.view, redact_financials=redact)
 
 
 __all__ = ["router"]

@@ -14,7 +14,13 @@ from catalog.domain.product import Product
 from catalog.domain.sku import Sku
 from catalog.domain.value_objects import ProductSlug, ProductStatus
 from catalog.ports.publication import PurchasableSku
+from identity.domain.membership import TenantMembership
+from identity.domain.policy import AccessPolicy, PolicyStatus
+from identity.domain.role import Role
+from identity.domain.service_account import ServiceAccount
+from identity.domain.session import UserSession
 from identity.domain.tenant import Tenant
+from identity.domain.user import User
 from inventory.domain.inventory_item import InventoryItem
 from inventory.domain.movement import InventoryMovement
 from inventory.domain.reservation import Reservation
@@ -26,11 +32,16 @@ from shared.application.errors import ConcurrencyConflict, DuplicateResource
 from shared.application.pagination import Page
 from shared.domain.identifiers import (
     InventoryItemId,
+    MembershipId,
     OrderId,
+    PolicyId,
     ProductId,
     ReservationId,
+    RoleId,
+    ServiceAccountId,
     SkuId,
     TenantId,
+    UserId,
     WarehouseId,
 )
 from tests.fakes.store import FakeStores
@@ -483,15 +494,218 @@ def new_uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+class FakeUserRepository(_VersionedRepository):
+    _collection = "users"
+    _noun = "user"
+    _id_field = "user_id"
+
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, user: User) -> None:
+        for existing in self._stores.users.values():
+            if existing.email == user.email:
+                raise DuplicateResource(resource_type="user", field="email")
+        self._persist(user)
+
+    async def get(self, user_id: UserId) -> User | None:
+        return self._stores.users.get(user_id)
+
+    async def get_by_email(self, email: str) -> User | None:
+        for user in self._stores.users.values():
+            if user.email == email:
+                return user
+        return None
+
+
+class FakeMembershipRepository(_VersionedRepository):
+    _collection = "memberships"
+    _noun = "tenant_membership"
+    _id_field = "membership_id"
+
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, membership: TenantMembership) -> None:
+        for existing in self._stores.memberships.values():
+            if (
+                existing.user_id == membership.user_id
+                and existing.tenant_id == membership.tenant_id
+            ):
+                raise DuplicateResource(
+                    resource_type="tenant_membership", field="user_id, tenant_id"
+                )
+        self._persist(membership)
+
+    async def get(self, membership_id: MembershipId) -> TenantMembership | None:
+        return self._stores.memberships.get(membership_id)
+
+    async def get_by_user_and_tenant(
+        self, user_id: UserId, tenant_id: TenantId
+    ) -> TenantMembership | None:
+        for m in self._stores.memberships.values():
+            if m.user_id == user_id and m.tenant_id == tenant_id:
+                return m
+        return None
+
+    async def list_for_user(self, user_id: UserId) -> list[TenantMembership]:
+        return [m for m in self._stores.memberships.values() if m.user_id == user_id]
+
+    async def list_for_tenant(self, tenant_id: TenantId) -> list[TenantMembership]:
+        return [m for m in self._stores.memberships.values() if m.tenant_id == tenant_id]
+
+
+class FakeSessionRepository:
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, session: UserSession) -> None:
+        self._stores.sessions[session.id] = session
+
+    async def get(self, session_id: uuid.UUID) -> UserSession | None:
+        return self._stores.sessions.get(session_id)
+
+    async def get_by_token_hash(
+        self, token_hash: str, *, for_update: bool = False
+    ) -> UserSession | None:
+        for s in self._stores.sessions.values():
+            if s.token_hash == token_hash:
+                return s
+        return None
+
+    async def revoke_family(self, family_id: uuid.UUID) -> None:
+        for s in self._stores.sessions.values():
+            if s.family_id == family_id:
+                s.revoke()
+
+    async def revoke_all_for_user(self, user_id: UserId) -> None:
+        for s in self._stores.sessions.values():
+            if s.user_id == user_id:
+                s.revoke()
+
+    async def save(self, session: UserSession) -> None:
+        self._stores.sessions[session.id] = session
+
+
+class FakeServiceAccountRepository(_VersionedRepository):
+    _collection = "service_accounts"
+    _noun = "service_account"
+    _id_field = "service_account_id"
+
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, sa: ServiceAccount) -> None:
+        for existing in self._stores.service_accounts.values():
+            if existing.client_id == sa.client_id:
+                raise DuplicateResource(resource_type="service_account", field="client_id")
+        self._persist(sa)
+
+    async def get(self, sa_id: ServiceAccountId) -> ServiceAccount | None:
+        return self._stores.service_accounts.get(sa_id)
+
+    async def get_by_client_id(self, client_id: str) -> ServiceAccount | None:
+        for sa in self._stores.service_accounts.values():
+            if sa.client_id == client_id:
+                return sa
+        return None
+
+    async def list_for_tenant(self, tenant_id: TenantId) -> list[ServiceAccount]:
+        return [sa for sa in self._stores.service_accounts.values() if sa.tenant_id == tenant_id]
+
+
+class FakeRoleRepository(_VersionedRepository):
+    _collection = "roles"
+    _noun = "role"
+    _id_field = "role_id"
+
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, role: Role) -> None:
+        for existing in self._stores.roles.values():
+            if existing.name.lower() == role.name.lower() and existing.tenant_id == role.tenant_id:
+                raise DuplicateResource(resource_type="role", field="name")
+        self._persist(role)
+
+    async def get(self, role_id: RoleId) -> Role | None:
+        return self._stores.roles.get(role_id)
+
+    async def get_by_name(self, name: str, tenant_id: TenantId | None = None) -> Role | None:
+        clean_name = name.strip().upper()
+        from identity.domain.role import RESERVED_ROLE_NAMES
+
+        if clean_name in RESERVED_ROLE_NAMES:
+            for role in self._stores.roles.values():
+                if role.name.upper() == clean_name and role.is_system:
+                    return role
+        for role in self._stores.roles.values():
+            if role.name.lower() == name.lower():
+                if role.tenant_id == tenant_id or (role.is_system and tenant_id is not None):
+                    return role
+                if role.tenant_id is None and tenant_id is None:
+                    return role
+        return None
+
+    async def list_for_tenant(
+        self, tenant_id: TenantId | None, include_system: bool = True
+    ) -> list[Role]:
+        res: list[Role] = []
+        for role in self._stores.roles.values():
+            if role.tenant_id == tenant_id or (role.is_system and include_system):
+                res.append(role)
+        return res
+
+    async def delete(self, role_id: RoleId) -> None:
+        self._stores.roles.pop(role_id, None)
+        self._stores.versions.pop(role_id, None)
+
+
+class FakePolicyRepository(_VersionedRepository):
+    _collection = "policies"
+    _noun = "policy"
+    _id_field = "policy_id"
+
+    def __init__(self, stores: FakeStores) -> None:
+        self._stores = stores
+
+    async def add(self, policy: AccessPolicy) -> None:
+        self._persist(policy)
+
+    async def get(self, policy_id: PolicyId) -> AccessPolicy | None:
+        return self._stores.policies.get(policy_id)
+
+    async def list_for_tenant(
+        self, tenant_id: TenantId | None, active_only: bool = False
+    ) -> list[AccessPolicy]:
+        res: list[AccessPolicy] = []
+        for pol in self._stores.policies.values():
+            if active_only and pol.status != PolicyStatus.ACTIVE:
+                continue
+            if pol.tenant_id == tenant_id or pol.tenant_id is None:
+                res.append(pol)
+        return res
+
+    async def delete(self, policy_id: PolicyId) -> None:
+        self._stores.policies.pop(policy_id, None)
+        self._stores.versions.pop(policy_id, None)
+
+
 __all__ = [
     "FakeCatalogQuery",
     "FakeInventoryItemRepository",
+    "FakeMembershipRepository",
     "FakeMovementRepository",
     "FakeOrderRepository",
+    "FakePolicyRepository",
     "FakeProductRepository",
     "FakeReservationRepository",
+    "FakeRoleRepository",
+    "FakeServiceAccountRepository",
+    "FakeSessionRepository",
     "FakeSkuRepository",
     "FakeTenantRepository",
+    "FakeUserRepository",
     "FakeWarehouseRepository",
     "new_uuid",
 ]

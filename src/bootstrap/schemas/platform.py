@@ -32,9 +32,10 @@ class TenantResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     version: int
+    invitation_token: str | None = None
 
     @classmethod
-    def from_view(cls, view: TenantView) -> TenantResponse:
+    def from_view(cls, view: TenantView, *, invitation_token: str | None = None) -> TenantResponse:
         return cls(
             id=view.id,
             slug=view.slug,
@@ -43,6 +44,7 @@ class TenantResponse(BaseModel):
             created_at=view.created_at,
             updated_at=view.updated_at,
             version=view.version,
+            invitation_token=invitation_token,
         )
 
 

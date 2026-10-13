@@ -31,18 +31,28 @@ ReservationAllocationId = NewType("ReservationAllocationId", uuid.UUID)
 OrderId = NewType("OrderId", uuid.UUID)
 OrderLineId = NewType("OrderLineId", uuid.UUID)
 CustomerId = NewType("CustomerId", uuid.UUID)
+UserId = NewType("UserId", uuid.UUID)
+MembershipId = NewType("MembershipId", uuid.UUID)
+ServiceAccountId = NewType("ServiceAccountId", uuid.UUID)
+RoleId = NewType("RoleId", uuid.UUID)
+PolicyId = NewType("PolicyId", uuid.UUID)
 
 __all__ = [
     "CustomerId",
     "InventoryItemId",
     "InventoryMovementId",
+    "MembershipId",
     "OrderId",
     "OrderLineId",
+    "PolicyId",
     "ProductId",
     "ReservationAllocationId",
     "ReservationId",
+    "RoleId",
+    "ServiceAccountId",
     "SkuId",
     "TenantId",
+    "UserId",
     "WarehouseId",
     "new_id",
 ]

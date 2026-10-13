@@ -20,5 +20,6 @@ than the outcome.
 | [0011](0011-redis-cache-foundation.md) | Redis cache foundation | cache-aside, tenant-prefixed keys, stampede protection, graceful degradation |
 | [0012](0012-elasticsearch-search-projection.md) | Elasticsearch search projection | event-driven read models, optimistic versioning, selective cache invalidation |
 | [0013](0013-search-api-reindex-and-reconciliation.md) | Search API, reindexing & reconciliation | tenant-safe queries, cache-aside, blue/green alias reindexing, unidirectional repair |
+| [0014](0014-identity-authentication-and-memberships.md) | Identity, authentication & memberships | User & membership aggregates, Argon2id/scrypt, JWT sessions with reuse detection, trusted principal context |
 
 Operational notes live in [`../runbooks/`](../runbooks/).

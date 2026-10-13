@@ -50,11 +50,13 @@ class OrderLineResponse(BaseModel):
     sku_code: str
     product_name: str
     quantity: int
-    unit_price: MoneySchema
-    line_total: MoneySchema
+    unit_price: MoneySchema | None = None
+    line_total: MoneySchema | None = None
 
     @classmethod
-    def from_view(cls, view: OrderLineView) -> OrderLineResponse:
+    def from_view(
+        cls, view: OrderLineView, *, redact_financials: bool = False
+    ) -> OrderLineResponse:
         return cls(
             id=view.id,
             line_number=view.line_number,
@@ -63,8 +65,16 @@ class OrderLineResponse(BaseModel):
             sku_code=view.sku_code,
             product_name=view.product_name,
             quantity=view.quantity,
-            unit_price=MoneySchema(amount_minor=view.unit_price_minor, currency=view.currency),
-            line_total=MoneySchema(amount_minor=view.line_total_minor, currency=view.currency),
+            unit_price=(
+                None
+                if redact_financials
+                else MoneySchema(amount_minor=view.unit_price_minor, currency=view.currency)
+            ),
+            line_total=(
+                None
+                if redact_financials
+                else MoneySchema(amount_minor=view.line_total_minor, currency=view.currency)
+            ),
         )
 
 
@@ -91,7 +101,7 @@ class OrderResponse(BaseModel):
     status: OrderStatus
     currency: str
     customer_reference: str | None
-    total: MoneySchema
+    total: MoneySchema | None = None
     total_quantity: int
     lines: list[OrderLineResponse]
     reservation: ReservationSummaryResponse | None
@@ -103,15 +113,22 @@ class OrderResponse(BaseModel):
     version: int
 
     @classmethod
-    def from_view(cls, view: OrderView) -> OrderResponse:
+    def from_view(cls, view: OrderView, *, redact_financials: bool = False) -> OrderResponse:
         return cls(
             id=view.id,
             status=view.status,
             currency=view.currency,
             customer_reference=view.customer_reference,
-            total=MoneySchema(amount_minor=view.total_minor, currency=view.currency),
+            total=(
+                None
+                if redact_financials
+                else MoneySchema(amount_minor=view.total_minor, currency=view.currency)
+            ),
             total_quantity=view.total_quantity,
-            lines=[OrderLineResponse.from_view(line) for line in view.lines],
+            lines=[
+                OrderLineResponse.from_view(line, redact_financials=redact_financials)
+                for line in view.lines
+            ],
             reservation=(
                 ReservationSummaryResponse.from_view(view.reservation)
                 if view.reservation is not None

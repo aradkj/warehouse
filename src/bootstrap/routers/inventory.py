@@ -12,6 +12,7 @@ from bootstrap.dependencies import (
     apply_outcome,
     get_tenant_context,
     get_use_cases,
+    require_permission,
 )
 from bootstrap.schemas.common import ErrorResponse
 from bootstrap.schemas.inventory import (
@@ -27,6 +28,7 @@ from bootstrap.schemas.inventory import (
     WarehousePageResponse,
     WarehouseResponse,
 )
+from identity.domain.principal import Principal
 from inventory.application.commands import (
     AdjustInventoryCommand,
     GetAvailabilityQuery,
@@ -64,6 +66,7 @@ async def register_warehouse(
     response: Response,
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.adjust"))],
 ) -> WarehouseResponse:
     """Create a stocking location. Codes are unique per tenant."""
     assert context.tenant_id is not None
@@ -88,6 +91,7 @@ async def register_warehouse(
 async def list_warehouses(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.read"))],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query()] = None,
     include_inactive: Annotated[bool, Query()] = True,
@@ -119,6 +123,7 @@ async def get_warehouse(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     warehouse_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.read"))],
 ) -> WarehouseResponse:
     assert context.tenant_id is not None
     view = await use_cases.get_warehouse(
@@ -140,6 +145,7 @@ async def adjust_inventory(
     response: Response,
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.adjust"))],
 ) -> AdjustmentResponse:
     """Receive, write off or correct stock for one SKU in one warehouse.
 
@@ -172,6 +178,7 @@ async def adjust_inventory(
 async def get_availability(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.read"))],
     sku_id: Annotated[UUID | None, Query()] = None,
     warehouse_id: Annotated[UUID | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -210,6 +217,7 @@ async def reserve_inventory(
     response: Response,
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
+    _principal: Annotated[Principal, Depends(require_permission("reservations.create"))],
 ) -> ReservationResultResponse:
     """Hold stock without an order (a channel-side hold, a quotation, ...).
 
@@ -262,6 +270,7 @@ async def get_reservation(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     reservation_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("inventory.read"))],
 ) -> ReservationResponse:
     assert context.tenant_id is not None
     view = await use_cases.get_reservation(
@@ -285,6 +294,7 @@ async def release_reservation(
     context: Annotated[RequestContext, Depends(get_tenant_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     reservation_id: Annotated[UUID, Path()],
+    _principal: Annotated[Principal, Depends(require_permission("reservations.release"))],
 ) -> ReservationResponse:
     """Give held stock back.
 

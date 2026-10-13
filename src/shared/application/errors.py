@@ -127,15 +127,64 @@ class SearchUnavailable(ApplicationError):
     code = "search_unavailable"
 
 
+class AuthenticationFailed(ApplicationError):
+    """Authentication failed due to missing, invalid or expired credentials."""
+
+    code = "authentication_failed"
+
+
+class Unauthorized(ApplicationError):
+    """Missing or invalid credentials required to access resource."""
+
+    code = "unauthorized"
+
+
+class Forbidden(ApplicationError):
+    """Authenticated principal is not authorized for the requested tenant or operation."""
+
+    code = "forbidden"
+
+
+class TenantSuspended(Forbidden):
+    """Tenant is suspended and cannot accept operations."""
+
+    code = "tenant_suspended"
+
+
+class MembershipDisabled(Forbidden):
+    """User membership in tenant is disabled."""
+
+    code = "membership_disabled"
+
+
+class AccountDisabled(Forbidden):
+    """Principal account is disabled or locked."""
+
+    code = "account_disabled"
+
+
+class CannotRemoveLastAdmin(ApplicationError):
+    """Cannot demote or deactivate the last active administrator of a tenant."""
+
+    code = "cannot_remove_last_admin"
+
+
 __all__ = [
+    "AccountDisabled",
     "ApplicationError",
+    "AuthenticationFailed",
+    "CannotRemoveLastAdmin",
     "ConcurrencyConflict",
     "DuplicateIdempotencyKey",
     "DuplicateResource",
+    "Forbidden",
     "IdempotencyKeyRequired",
     "IdempotencyOperationInProgress",
     "InvalidRequest",
+    "MembershipDisabled",
     "MissingReference",
     "NotFound",
     "SearchUnavailable",
+    "TenantSuspended",
+    "Unauthorized",
 ]

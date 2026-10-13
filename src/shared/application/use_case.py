@@ -110,6 +110,8 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
     success_status: ClassVar[int] = 200
     #: When true, the endpoint refuses to run without an ``Idempotency-Key``.
     idempotency_required: ClassVar[bool] = False
+    #: When true, the use case bypasses PostgreSQL RLS (e.g. platform authentication).
+    bypass_rls: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -118,11 +120,54 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         clock: Clock,
         events: EventDispatcher | None = None,
         idempotency_retention: timedelta = DEFAULT_IDEMPOTENCY_RETENTION,
+        authorizer: Any | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
         self._events: EventDispatcher = events or NullEventDispatcher()
         self._idempotency_retention = idempotency_retention
+        self._authorizer = authorizer
+
+    async def _authorize(
+        self,
+        context: RequestContext,
+        action: str,
+        resource_type: str,
+        resource_id: str | None = None,
+        resource_tenant_id: Any | None = None,
+        resource_attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Evaluate authorization through the configured AuthorizationPort."""
+        if self._authorizer is None:
+            return
+
+        from identity.ports.authorization import AuthorizationRequest, Principal
+        from shared.application.context import ActorType
+        from shared.application.errors import Forbidden
+
+        principal: Principal | None = getattr(context, "principal", None)
+        if principal is None and context.actor_type == ActorType.SYSTEM:
+            principal = Principal(id="system", type=ActorType.SYSTEM)
+
+        req = AuthorizationRequest(
+            action=action,
+            resource_type=resource_type,
+            principal_id=principal.id if principal else (context.actor_id if context.actor_id != "unknown" else None),
+            principal_type=principal.type if principal else context.actor_type,
+            tenant_id=context.tenant_id,
+            roles=principal.roles if principal else (),
+            permissions=principal.permissions if principal else frozenset(),
+            resource_id=resource_id,
+            resource_tenant_id=resource_tenant_id or context.tenant_id,
+            resource_attributes=resource_attributes or {},
+            environment={"correlation_id": context.correlation_id},
+        )
+        decision = await self._authorizer.authorize(req)
+        if not decision.allowed:
+            raise Forbidden(
+                f"operation '{action}' not authorized on {resource_type}",
+                details={"reason": decision.reason.value, "reason_details": decision.reason_details},
+            )
 
     # -- public API --------------------------------------------------------
     async def __call__(self, command: CommandT) -> Outcome[ViewT]:
@@ -141,6 +186,17 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             )
         now = self._clock.now()
         async with self._uow_factory() as uow:
+            scope = getattr(uow, "_scope", None)
+            if scope is not None:
+                from shared.application.context import ActorType
+                if self.bypass_rls or context.actor_type == ActorType.SYSTEM:
+                    if hasattr(scope, "set_bypass_rls"):
+                        await scope.set_bypass_rls(True)
+                elif tenant_id is not None and hasattr(scope, "set_tenant_context"):
+                    await scope.set_tenant_context(tenant_id)
+                elif context.tenant_id is not None and hasattr(scope, "set_tenant_context"):
+                    await scope.set_tenant_context(context.tenant_id)
+
             claim = None
             if key is not None and tenant_id is not None:
                 claim = await uow.idempotency.claim(
@@ -226,12 +282,24 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
     consistent snapshot semantics, but they never commit and never write.
     """
 
+    bypass_rls: ClassVar[bool] = False
+
     def __init__(self, *, uow_factory: Callable[[], UowT], clock: Clock) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
 
     async def __call__(self, command: CommandT) -> ViewT:
+        context = getattr(command, "context", None)
+        tenant_id = getattr(command, "tenant_id", None) or (getattr(context, "tenant_id", None) if context else None)
         async with self._uow_factory() as uow:
+            scope = getattr(uow, "_scope", None)
+            if scope is not None:
+                from shared.application.context import ActorType
+                if self.bypass_rls or (context is not None and getattr(context, "actor_type", None) == ActorType.SYSTEM):
+                    if hasattr(scope, "set_bypass_rls"):
+                        await scope.set_bypass_rls(True)
+                elif tenant_id is not None and hasattr(scope, "set_tenant_context"):
+                    await scope.set_tenant_context(tenant_id)
             return await self._execute(uow, command)
 
     @abstractmethod

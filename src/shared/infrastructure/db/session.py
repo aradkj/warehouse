@@ -78,9 +78,18 @@ class Database:
         async with self._engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
 
-    def new_scope(self) -> SqlAlchemyTransactionScope:
+    def new_scope(
+        self,
+        *,
+        tenant_id: str | None = None,
+        bypass_rls: bool = False,
+    ) -> SqlAlchemyTransactionScope:
         """Create a fresh, per-request transaction scope."""
-        return SqlAlchemyTransactionScope(self._session_factory)
+        return SqlAlchemyTransactionScope(
+            self._session_factory,
+            tenant_id=tenant_id,
+            bypass_rls=bypass_rls,
+        )
 
 
 class SqlAlchemyTransactionScope:
@@ -90,13 +99,28 @@ class SqlAlchemyTransactionScope:
     may be entered several times; only the outermost entry owns the transaction.
     """
 
-    __slots__ = ("_depth", "_rollback_only", "_session", "_session_factory")
+    __slots__ = (
+        "_depth",
+        "_rollback_only",
+        "_session",
+        "_session_factory",
+        "_tenant_id",
+        "_bypass_rls",
+    )
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        tenant_id: str | None = None,
+        bypass_rls: bool = False,
+    ) -> None:
         self._session_factory = session_factory
         self._session: AsyncSession | None = None
         self._depth = 0
         self._rollback_only = False
+        self._tenant_id = str(tenant_id) if tenant_id is not None else None
+        self._bypass_rls = bypass_rls
 
     # -- transaction scope protocol --------------------------------------
     async def __aenter__(self) -> Self:
@@ -106,8 +130,51 @@ class SqlAlchemyTransactionScope:
             # which keeps the transaction boundary visible in the code.
             await self._session.begin()
             self._rollback_only = False
+            await self._apply_rls_context()
         self._depth += 1
         return self
+
+    async def _apply_rls_context(self) -> None:
+        if self._session is None:
+            return
+        from sqlalchemy import text
+        bind = self._session.bind
+        dialect_name = bind.dialect.name if bind is not None else "postgresql"
+        if dialect_name != "postgresql":
+            return
+
+        if self._bypass_rls:
+            try:
+                await self._session.execute(text("RESET ROLE"))
+            except Exception:
+                pass
+            await self._session.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+        else:
+            try:
+                await self._session.execute(text("SET LOCAL ROLE arad_app"))
+            except Exception:
+                pass
+            if self._tenant_id is not None:
+                await self._session.execute(
+                    text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                    {"tid": str(self._tenant_id)},
+                )
+            else:
+                await self._session.execute(text("SELECT set_config('app.current_tenant_id', '', true)"))
+                await self._session.execute(text("SELECT set_config('app.bypass_rls', 'off', true)"))
+
+    async def set_tenant_context(self, tenant_id: object | None) -> None:
+        """Establish or update transaction-local tenant context for RLS."""
+        self._tenant_id = str(tenant_id) if tenant_id is not None else None
+        self._bypass_rls = False
+        await self._apply_rls_context()
+
+    async def set_bypass_rls(self, bypass: bool = True) -> None:
+        """Explicitly configure controlled RLS bypass for trusted workers/admin."""
+        self._bypass_rls = bypass
+        if bypass:
+            self._tenant_id = None
+        await self._apply_rls_context()
 
     async def __aexit__(
         self,

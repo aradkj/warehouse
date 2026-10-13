@@ -40,7 +40,9 @@ def upgrade() -> None:
     )
 
     # 2. Update status constraint to include 'PROCESSING'
-    op.execute("ALTER TABLE inbox_messages DROP CONSTRAINT IF EXISTS ck_inbox_messages_status_valid")
+    op.execute(
+        "ALTER TABLE inbox_messages DROP CONSTRAINT IF EXISTS ck_inbox_messages_status_valid"
+    )
     op.execute(
         "ALTER TABLE inbox_messages ADD CONSTRAINT ck_inbox_messages_status_valid "
         "CHECK (status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'FAILED'))"
@@ -58,7 +60,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_inbox_messages_status_lease_until", table_name="inbox_messages")
 
-    op.execute("ALTER TABLE inbox_messages DROP CONSTRAINT IF EXISTS ck_inbox_messages_status_valid")
+    op.execute(
+        "ALTER TABLE inbox_messages DROP CONSTRAINT IF EXISTS ck_inbox_messages_status_valid"
+    )
     op.execute(
         "ALTER TABLE inbox_messages ADD CONSTRAINT ck_inbox_messages_status_valid "
         "CHECK (status IN ('RECEIVED', 'PROCESSED', 'FAILED'))"

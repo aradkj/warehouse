@@ -7,7 +7,7 @@ distributed in later phases without rewriting business logic.
 
 | Context | Phase 1 | Owns |
 | --- | --- | --- |
-| **Identity & Access** | implemented (tenants only) | who the caller is, which tenant |
+| **Identity & Access** | implemented (Phase 4.1) | users, memberships, service accounts, sessions, tenants |
 | **Catalog** | implemented | products, SKUs, prices, purchasability |
 | **Inventory** | implemented | warehouses, stock, movements, reservations |
 | **Ordering** | implemented | orders, lines, lifecycle, pricing snapshot |
@@ -39,20 +39,19 @@ on. It has three layers and the same dependency rule applies inside it.
 
 ## Identity & Access
 
-**Language:** tenant, tenant status, actor.
+**Language:** tenant, tenant status, user, user status, tenant membership, membership status, service account, session, refresh token family, principal.
 
-**Phase 1 scope:** a tenant is the unit of isolation. `Tenant` is an aggregate with
-a slug (unique globally), a name and `ACTIVE|SUSPENDED` status; `RegisterTenant` and
-`GetTenant` are the only use cases, and `POST /v1/tenants` is how a test or an
-operator creates one.
+**Phase 1 & Phase 4.1 scope:**
+- `Tenant`: unit of isolation with slug, name, and `ACTIVE|SUSPENDED` status.
+- `User`: human identity with normalized email, Argon2id/scrypt password hash, status (`ACTIVE|DISABLED|LOCKED`), and versioning.
+- `TenantMembership`: explicit mapping between users and tenants with status (`ACTIVE|DISABLED`), supporting multi-tenancy.
+- `ServiceAccount`: machine-to-machine identity scoped to a tenant, with random secret hashing and revocation.
+- `UserSession`: tracks refresh token session families, rotation, and reuse detection.
+- `Principal`: trusted caller representation used across FastAPI dependencies (`get_current_principal`, `get_authenticated_tenant_context`).
 
-**Explicitly out of scope:** authentication, credentials, roles, permissions, ABAC.
-Phase 1 trusts the `X-Tenant-Id` header as the tenant context (the specification
-calls advanced authentication a later concern) and says so here rather than
-half-implementing security. `RequestContext` is the single place that decision is
-made, so adding real authentication later changes one dependency provider.
+**Explicitly out of scope for Phase 4.1:** ABAC policy engine, dynamic policy APIs, PostgreSQL RLS (scheduled for Phase 4.2+).
 
-**Owns:** `tenants`.
+**Owns:** `tenants`, `users`, `tenant_memberships`, `user_sessions`, `service_accounts`.
 
 ## Catalog
 
@@ -169,6 +168,24 @@ phase.
 sketches the entry and declares `PLANNED_PHASE = 2`. Phase 1's equivalent is the
 `inventory_movements` ledger (for stock) and the structured access log with
 correlation ids (for requests).
+
+## Identity & Access Control — Phase 4.1 & 4.2
+
+**Responsibility:** Authenticating principals, managing tenant memberships, enforcing role-based (RBAC) and attribute-based (ABAC) authorization policies, field-level data protection, and managing service account credentials.
+
+**Aggregates:**
+* `User`: Credentials, status (`ACTIVE`, `DISABLED`, `LOCKED`), versioning.
+* `TenantMembership`: Multi-tenant user bindings, status, role assignments (`ADMIN`, `MEMBER`, custom roles).
+* `ServiceAccount`: Machine credentials, API tokens, explicit granted scopes.
+* `Role`: System and tenant-scoped collections of granular permission identifiers.
+* `AccessPolicy`: ABAC rules with deterministic condition trees (`ALLOW` / `DENY` effect, actions, resources, status).
+
+**Enforcement:**
+* `AuthorizationPort` / `PolicyEvaluator`: Framework-independent policy engine evaluated on application use cases and HTTP endpoints (`/v1/access`, `/v1/orders`, etc.).
+* Field-level filtering: Redacts sensitive financial information for non-financial viewers (e.g. `SUPPORT_AGENT`).
+* Cross-tenant fail-closed boundary: Resource tenant validation prevents BOLA/IDOR.
+
+**Owns:** `users`, `tenant_memberships`, `user_sessions`, `service_accounts`, `roles`, `role_permissions`, `membership_roles`, `service_account_scopes`, `access_policies`.
 
 ## Boundary rules the tests enforce
 

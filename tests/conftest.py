@@ -166,9 +166,56 @@ async def _isolate_database(
     import shared.infrastructure.db.registry  # noqa: F401  (registers every table)
     from shared.infrastructure.db.base import metadata
 
-    table_names = ", ".join(f'"{table.name}"' for table in metadata.sorted_tables)
+    table_names = ", ".join(
+        f'"{table.name}"'
+        for table in metadata.sorted_tables
+        if table.name not in ("roles", "role_permissions")
+    )
     async with _truncation_engine.begin() as connection:
         await connection.execute(text(f"TRUNCATE {table_names} CASCADE"))
+        await connection.execute(text("DELETE FROM roles WHERE is_system = false"))
+        res = await connection.execute(text("SELECT count(*) FROM roles WHERE is_system = true"))
+        if res.scalar() == 0:
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO roles (id, tenant_id, name, description, is_system, version) VALUES
+                    ('00000000-0000-0000-0000-000000000001', NULL, 'ADMIN',
+                     'Full tenant administrative access', true, 1),
+                    ('00000000-0000-0000-0000-000000000002', NULL, 'MEMBER',
+                     'Standard tenant member', true, 1),
+                    ('00000000-0000-0000-0000-000000000003', NULL, 'SUPPORT_AGENT',
+                     'Support agent with restricted financial views', true, 1),
+                    ('00000000-0000-0000-0000-000000000004', NULL, 'AUDITOR',
+                     'Read-only auditor with access to audit logs', true, 1)
+                    ON CONFLICT (id) DO NOTHING;
+                    """
+                )
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO role_permissions (role_id, permission) VALUES
+                    ('00000000-0000-0000-0000-000000000001', '*'),
+                    ('00000000-0000-0000-0000-000000000002', 'orders.read'),
+                    ('00000000-0000-0000-0000-000000000002', 'orders.create'),
+                    ('00000000-0000-0000-0000-000000000002', 'orders.cancel'),
+                    ('00000000-0000-0000-0000-000000000002', 'orders.confirm'),
+                    ('00000000-0000-0000-0000-000000000002', 'orders.financials.read'),
+                    ('00000000-0000-0000-0000-000000000002', 'inventory.read'),
+                    ('00000000-0000-0000-0000-000000000002', 'catalog.products.read'),
+                    ('00000000-0000-0000-0000-000000000003', 'orders.read'),
+                    ('00000000-0000-0000-0000-000000000003', 'inventory.read'),
+                    ('00000000-0000-0000-0000-000000000003', 'catalog.products.read'),
+                    ('00000000-0000-0000-0000-000000000004', 'orders.read'),
+                    ('00000000-0000-0000-0000-000000000004', 'orders.financials.read'),
+                    ('00000000-0000-0000-0000-000000000004', 'inventory.read'),
+                    ('00000000-0000-0000-0000-000000000004', 'catalog.products.read'),
+                    ('00000000-0000-0000-0000-000000000004', 'audit.events.read')
+                    ON CONFLICT DO NOTHING;
+                    """
+                )
+            )
     yield
 
 

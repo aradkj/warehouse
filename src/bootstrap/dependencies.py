@@ -32,7 +32,40 @@ from catalog.application.use_cases import (
     DeactivateSku,
     ReviseProduct,
 )
-from identity.application.use_cases import GetTenant, RegisterTenant
+from identity.application.authorization import ApplicationAuthorizationService
+from identity.application.use_cases import (
+    AssignRole,
+    AuthenticateServiceAccount,
+    AuthenticateUser,
+    ChangePassword,
+    CreateInvitation,
+    CreatePolicy,
+    CreateRole,
+    CreateServiceAccount,
+    GetPolicy,
+    GetRole,
+    GetTenant,
+    ListMemberships,
+    ListPolicies,
+    ListRoles,
+    ProvisionMembership,
+    RefreshToken,
+    RegisterTenant,
+    RegisterUser,
+    RevokeRole,
+    RevokeServiceAccount,
+    RevokeSession,
+    RotateServiceAccountSecret,
+    SelectTenant,
+    UpdatePolicyStatus,
+)
+from identity.domain.decision import AuthorizationRequest
+from identity.domain.membership import MembershipRole, MembershipStatus
+from identity.domain.principal import Principal
+from identity.domain.service_account import ServiceAccountStatus
+from identity.domain.tenant import TenantStatus
+from identity.domain.user import UserStatus
+from identity.infrastructure.security import PasswordHasher, TokenService
 from inventory.application.queries import (
     GetAvailability,
     GetReservation,
@@ -52,11 +85,18 @@ from ordering.application.use_cases import CancelOrder, ConfirmOrder, CreateOrde
 from ordering.domain.policies import UnavailableStockPolicy
 from search.ports.indexer import SearchIndexer
 from shared.application.context import ActorType, RequestContext
-from shared.application.errors import InvalidRequest
-from shared.application.events import EventDispatcher, NullEventDispatcher
+from shared.application.errors import (
+    AccountDisabled,
+    AuthenticationFailed,
+    Forbidden,
+    InvalidRequest,
+    MembershipDisabled,
+    TenantSuspended,
+)
+from shared.application.events import EventDispatcher
 from shared.application.use_case import Outcome
 from shared.domain.clock import Clock, SystemClock
-from shared.domain.identifiers import TenantId
+from shared.domain.identifiers import ServiceAccountId, TenantId, UserId
 from shared.infrastructure.db.session import Database, SqlAlchemyTransactionScope
 from shared.ports.cache import CachePort
 
@@ -98,6 +138,25 @@ def get_search_indexer(request: Request) -> SearchIndexer:
 
         return InMemorySearchIndexer()
     return indexer
+
+
+def get_password_hasher(
+    settings: Annotated[Settings, Depends(get_application_settings)] | None = None,
+) -> PasswordHasher:
+    is_prod = settings.is_production if settings is not None else False
+    return PasswordHasher(allow_fallback=not is_prod)
+
+
+def get_token_service(
+    settings: Annotated[Settings, Depends(get_application_settings)],
+) -> TokenService:
+    return TokenService(
+        secret=settings.auth_jwt_secret,
+        algorithm=settings.auth_jwt_algorithm,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
+        access_token_ttl_seconds=settings.auth_access_token_ttl_seconds,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -165,16 +224,359 @@ def get_request_context(
     )
 
 
-def get_tenant_context(
-    context: Annotated[RequestContext, Depends(get_request_context)],
+# get_tenant_context is defined below, delegating to get_authenticated_tenant_context
+
+
+async def get_current_principal(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    token_service: Annotated[TokenService, Depends(get_token_service)],
+    database: Annotated[Database, Depends(get_database)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> Principal | None:
+    """Resolve and validate the current authenticated principal from Bearer token."""
+    if authorization is None:
+        if settings.auth_required:
+            raise AuthenticationFailed("missing authorization header")
+        return None
+
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise AuthenticationFailed("invalid authorization header format; expected 'Bearer <token>'")
+
+    raw_token = parts[1]
+    claims = token_service.verify_access_token(raw_token)
+
+    sub = claims.get("sub")
+    if not sub:
+        raise AuthenticationFailed("missing subject claim in token")
+
+    token_type = claims.get("type", "access")
+
+    if token_type == "system":
+        return Principal(
+            id=str(sub),
+            type=ActorType.SYSTEM,
+            email=None,
+            active_tenant_id=None,
+            active_membership_id=None,
+            account_status="ACTIVE",
+            role="SYSTEM",
+            roles=("SYSTEM", "ADMIN"),
+            permissions=frozenset({"*"}),
+        )
+
+    async with database.new_scope(bypass_rls=True) as scope:
+        from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
+
+        async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
+            if token_type == "service_account":
+                try:
+                    sa_id = ServiceAccountId(uuid.UUID(sub))
+                except ValueError as exc:
+                    raise AuthenticationFailed("malformed subject in token") from exc
+
+                sa = await uow.service_accounts.get(sa_id)
+                if sa is None or sa.status != ServiceAccountStatus.ACTIVE:
+                    raise AccountDisabled("service account is disabled or does not exist")
+
+                token_version = claims.get("token_version")
+                if token_version is None or token_version != sa.version:
+                    raise AuthenticationFailed("service account token has been invalidated by secret rotation")
+
+                tenant = await uow.tenants.get(sa.tenant_id)
+                if tenant is None or tenant.status != TenantStatus.ACTIVE:
+                    raise TenantSuspended("tenant is suspended or does not exist")
+
+                return Principal(
+                    id=str(sa.id),
+                    type=ActorType.SERVICE_ACCOUNT,
+                    email=None,
+                    active_tenant_id=sa.tenant_id,
+                    active_membership_id=None,
+                    account_status=sa.status.value,
+                    role="SERVICE_ACCOUNT",
+                    roles=(),
+                    permissions=sa.scopes,
+                )
+            else:
+                try:
+                    user_id = UserId(uuid.UUID(sub))
+                except ValueError as exc:
+                    raise AuthenticationFailed("malformed subject in token") from exc
+
+                user = await uow.users.get(user_id)
+                if user is None:
+                    raise AuthenticationFailed("user does not exist")
+                if user.status != UserStatus.ACTIVE:
+                    raise AccountDisabled(f"user account is {user.status.value.lower()}")
+
+                active_tenant_id = None
+                active_membership_id = None
+                membership = None
+
+                raw_tenant_id = claims.get("tenant_id")
+                if raw_tenant_id:
+                    try:
+                        active_tenant_id = TenantId(uuid.UUID(raw_tenant_id))
+                    except ValueError as exc:
+                        raise AuthenticationFailed("malformed tenant_id in token") from exc
+
+                    tenant = await uow.tenants.get(active_tenant_id)
+                    if tenant is None or tenant.status != TenantStatus.ACTIVE:
+                        raise TenantSuspended("tenant is suspended or does not exist")
+
+                    membership = await uow.memberships.get_by_user_and_tenant(
+                        user.id, active_tenant_id
+                    )
+                    if membership is None:
+                        raise Forbidden("user is not a member of the active tenant")
+                    if membership.status != MembershipStatus.ACTIVE:
+                        raise MembershipDisabled("tenant membership is disabled")
+
+                    active_membership_id = membership.id
+
+                effective_roles: set[str] = set()
+                perms: set[str] = set()
+                from identity.domain.role import SYSTEM_ROLES_PERMISSIONS
+
+                if membership is not None:
+                    if membership.roles:
+                        effective_roles.update(membership.roles)
+                    else:
+                        effective_roles.add(membership.role.value)
+                    for r_name in effective_roles:
+                        if r_name in SYSTEM_ROLES_PERMISSIONS:
+                            perms.update(SYSTEM_ROLES_PERMISSIONS[r_name])
+                        r_obj = await uow.roles.get_by_name(r_name, active_tenant_id)
+                        if r_obj is not None:
+                            perms.update(r_obj.permissions)
+
+                return Principal(
+                    id=str(user.id),
+                    type=ActorType.USER,
+                    email=user.email,
+                    active_tenant_id=active_tenant_id,
+                    active_membership_id=active_membership_id,
+                    account_status=user.status.value,
+                    role=membership.role.value if membership is not None else "MEMBER",
+                    roles=tuple(sorted(effective_roles)),
+                    permissions=frozenset(perms),
+                )
+
+
+async def require_current_principal(
+    principal: Annotated[Principal | None, Depends(get_current_principal)],
+) -> Principal:
+    """Strictly require an authenticated principal."""
+    if principal is None:
+        raise AuthenticationFailed("authentication required")
+    return principal
+
+
+async def get_authenticated_tenant_context(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    principal: Annotated[Principal | None, Depends(get_current_principal)],
+    database: Annotated[Database, Depends(get_database)],
+    tenant_header: Annotated[str | None, Header(alias="X-Tenant-Id")] = None,
+    actor_header: Annotated[str | None, Header(alias="X-Actor-Id")] = None,
+    actor_type_header: Annotated[str | None, Header(alias="X-Actor-Type")] = None,
+    idempotency_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> RequestContext:
-    """Context for tenant-scoped endpoints: the tenant header is mandatory."""
-    if context.tenant_id is None:
+    """Resolve trusted tenant context for protected tenant-scoped operations."""
+    if principal is not None:
+        selected_tenant_id: TenantId | None = None
+        if tenant_header:
+            try:
+                selected_tenant_id = TenantId(uuid.UUID(tenant_header))
+            except ValueError as exc:
+                raise InvalidRequest(
+                    "the tenant header is not a valid identifier",
+                    details={"header": "X-Tenant-Id"},
+                ) from exc
+
+            if principal.is_user:
+                async with database.new_scope(bypass_rls=True) as scope:
+                    from identity.adapters.persistence.unit_of_work import (
+                        SqlAlchemyIdentityUnitOfWork,
+                    )
+
+                    async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
+                        tenant = await uow.tenants.get(selected_tenant_id)
+                        if tenant is None or tenant.status != TenantStatus.ACTIVE:
+                            raise TenantSuspended("tenant is suspended or does not exist")
+
+                        membership = await uow.memberships.get_by_user_and_tenant(
+                            UserId(uuid.UUID(principal.id)), selected_tenant_id
+                        )
+                        if membership is None:
+                            raise Forbidden("user is not a member of the requested tenant")
+                        if membership.status != MembershipStatus.ACTIVE:
+                            raise MembershipDisabled("tenant membership is disabled")
+            elif principal.is_service_account and principal.active_tenant_id != selected_tenant_id:
+                raise Forbidden("service account cannot access a different tenant")
+        else:
+            selected_tenant_id = principal.active_tenant_id
+
+        if selected_tenant_id is None:
+            raise InvalidRequest(
+                "the X-Tenant-Id header is required or a tenant must be selected",
+                details={"header": "X-Tenant-Id"},
+            )
+
+        correlation_id = (
+            request.headers.get("X-Correlation-Id")
+            or getattr(request.state, "correlation_id", None)
+            or str(uuid.uuid4())
+        )
+        key = idempotency_header.strip() if idempotency_header else None
+        if key is not None and not 1 <= len(key) <= 255:
+            raise InvalidRequest("the idempotency key must be 1-255 characters")
+
+        return RequestContext(
+            tenant_id=selected_tenant_id,
+            actor_id=principal.id,
+            actor_type=principal.type,
+            correlation_id=correlation_id,
+            idempotency_key=key,
+            received_at=datetime.now(UTC),
+            principal=principal,
+        )
+
+    if settings.auth_required:
+        raise AuthenticationFailed("authentication required")
+
+    legacy_context = get_request_context(
+        request=request,
+        tenant_header=tenant_header,
+        actor_header=actor_header,
+        actor_type_header=actor_type_header,
+        idempotency_header=idempotency_header,
+    )
+    if legacy_context.tenant_id is None:
         raise InvalidRequest(
             "the X-Tenant-Id header is required for this operation",
             details={"header": "X-Tenant-Id"},
         )
+    legacy_principal = Principal(
+        id=str(legacy_context.actor_id),
+        type=legacy_context.actor_type,
+        email=None,
+        active_tenant_id=legacy_context.tenant_id,
+        active_membership_id=None,
+        account_status="ACTIVE",
+        role="ADMIN",
+        roles=("ADMIN",),
+        permissions=frozenset({"*"}),
+    )
+    import dataclasses
+    return dataclasses.replace(legacy_context, principal=legacy_principal)
+
+
+async def get_tenant_context(
+    context: Annotated[RequestContext, Depends(get_authenticated_tenant_context)],
+) -> RequestContext:
+    """Context for tenant-scoped endpoints: requires validated tenant membership."""
     return context
+
+
+async def require_tenant_admin(
+    principal: Annotated[Principal, Depends(require_current_principal)],
+    context: Annotated[RequestContext, Depends(get_authenticated_tenant_context)],
+    database: Annotated[Database, Depends(get_database)],
+) -> Principal:
+    """Enforce that caller is a human administrator of the targeted tenant."""
+    if not principal.is_user:
+        raise Forbidden("service accounts cannot administer tenant resources")
+
+    assert context.tenant_id is not None
+    if principal.is_tenant_admin or "ADMIN" in principal.roles or principal.role == "ADMIN":
+        return principal
+
+    async with database.new_scope() as scope:
+        from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
+
+        async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
+            membership = await uow.memberships.get_by_user_and_tenant(
+                UserId(uuid.UUID(principal.id)), context.tenant_id
+            )
+            if membership is None or not (
+                membership.role == MembershipRole.ADMIN
+                or "ADMIN" in membership.roles
+                or membership.has_role("ADMIN")
+            ):
+                raise Forbidden("operation requires tenant administrator privileges")
+            if membership.status != MembershipStatus.ACTIVE:
+                raise MembershipDisabled("tenant membership is disabled")
+    return principal
+
+
+def get_authorization_service(
+    database: Annotated[Database, Depends(get_database)],
+    scope: Annotated[SqlAlchemyTransactionScope, Depends(get_transaction_scope)],
+) -> ApplicationAuthorizationService:
+    from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
+    from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
+
+    def _uow_factory() -> SqlAlchemyIdentityUnitOfWork:
+        return SqlAlchemyIdentityUnitOfWork(database.new_scope())
+
+    return ApplicationAuthorizationService(
+        uow_factory=_uow_factory,
+        audit=SqlAlchemyAuditAdapter(scope),
+    )
+
+
+def require_permission(
+    permission: str,
+    resource_type: str | None = None,
+    action: str | None = None,
+) -> Any:
+    """Enforce that caller holds the required permission or policy allows it."""
+
+    async def _dependency(
+        principal: Annotated[Principal | None, Depends(get_current_principal)],
+        context: Annotated[RequestContext, Depends(get_authenticated_tenant_context)],
+        auth_service: Annotated[
+            ApplicationAuthorizationService, Depends(get_authorization_service)
+        ],
+        settings: Annotated[Settings, Depends(get_application_settings)],
+    ) -> Principal:
+        effective_principal = principal
+        if effective_principal is None:
+            if settings.auth_required:
+                raise AuthenticationFailed("authentication required")
+            # Legacy non-authenticated request in test / local setup
+            return Principal(
+                id=str(context.actor_id),
+                type=context.actor_type,
+                email=None,
+                active_tenant_id=context.tenant_id,
+                active_membership_id=None,
+                account_status="ACTIVE",
+                role="ADMIN",
+                roles=("ADMIN",),
+                permissions=frozenset({"*"}),
+            )
+
+        req = AuthorizationRequest(
+            principal_id=effective_principal.id,
+            principal_type=effective_principal.type,
+            tenant_id=effective_principal.active_tenant_id,
+            roles=effective_principal.roles,
+            permissions=effective_principal.permissions,
+            action=action or permission,
+            resource_type=resource_type or permission.split(".")[0],
+            resource_id=None,
+            resource_tenant_id=context.tenant_id,
+        )
+        decision = await auth_service.authorize(req)
+        if not decision.allowed:
+            raise Forbidden(f"operation requires permission '{permission}': {decision.reason}")
+        return effective_principal
+
+    return _dependency
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +615,33 @@ class UseCases:
     cancel_order: CancelOrder
     get_order: GetOrder
     list_orders: ListOrders
-    # identity
+    # identity (Phase 1)
     register_tenant: RegisterTenant
     get_tenant: GetTenant
+    # identity (Phase 4.1)
+    register_user: RegisterUser
+    authenticate_user: AuthenticateUser
+    refresh_token: RefreshToken
+    revoke_session: RevokeSession
+    list_memberships: ListMemberships
+    select_tenant: SelectTenant
+    change_password: ChangePassword
+    create_invitation: CreateInvitation
+    provision_membership: ProvisionMembership
+    create_service_account: CreateServiceAccount
+    authenticate_service_account: AuthenticateServiceAccount
+    rotate_service_account: RotateServiceAccountSecret
+    revoke_service_account: RevokeServiceAccount
+    # access (Phase 4.2)
+    create_role: CreateRole
+    get_role: GetRole
+    list_roles: ListRoles
+    assign_role: AssignRole
+    revoke_role: RevokeRole
+    create_policy: CreatePolicy
+    get_policy: GetPolicy
+    list_policies: ListPolicies
+    update_policy_status: UpdatePolicyStatus
 
 
 def build_use_cases(
@@ -224,6 +650,7 @@ def build_use_cases(
     clock: Clock,
     scope: SqlAlchemyTransactionScope,
     events: EventDispatcher | None = None,
+    authorizer: Any | None = None,
 ) -> UseCases:
     """Wire every use case onto one transaction scope.
 
@@ -249,11 +676,31 @@ def build_use_cases(
         max_reservation_ttl_seconds=settings.max_reservation_ttl_seconds,
     )
 
+    if authorizer is None and settings.auth_required:
+        from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
+        from identity.application.authorization import ApplicationAuthorizationService
+
+        authorizer = ApplicationAuthorizationService(
+            uow_factory=identity_uow,
+            audit=SqlAlchemyAuditAdapter(scope.session),
+        )
+
     common: dict[str, Any] = {
         "clock": clock,
         "events": dispatcher,
         "idempotency_retention": retention,
+        "authorizer": authorizer,
     }
+
+    hasher = get_password_hasher(settings)
+    token_service = TokenService(
+        secret=settings.auth_jwt_secret,
+        algorithm=settings.auth_jwt_algorithm,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
+        access_token_ttl_seconds=settings.auth_access_token_ttl_seconds,
+    )
+    refresh_ttl = timedelta(seconds=settings.auth_refresh_token_ttl_seconds)
 
     return UseCases(
         create_product=CreateProduct(uow_factory=catalog_uow, **common),
@@ -293,6 +740,73 @@ def build_use_cases(
         list_orders=ListOrders(uow_factory=ordering_uow, clock=clock),
         register_tenant=RegisterTenant(uow_factory=identity_uow, **common),
         get_tenant=GetTenant(uow_factory=identity_uow, clock=clock),
+        register_user=RegisterUser(
+            uow_factory=identity_uow,
+            clock=clock,
+            hasher=hasher,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        authenticate_user=AuthenticateUser(
+            uow_factory=identity_uow,
+            clock=clock,
+            hasher=hasher,
+            token_service=token_service,
+            refresh_ttl=refresh_ttl,
+            events=dispatcher,
+        ),
+        refresh_token=RefreshToken(
+            uow_factory=identity_uow,
+            clock=clock,
+            token_service=token_service,
+            refresh_ttl=refresh_ttl,
+            events=dispatcher,
+        ),
+        revoke_session=RevokeSession(uow_factory=identity_uow, clock=clock, events=dispatcher),
+        list_memberships=ListMemberships(uow_factory=identity_uow, clock=clock),
+        select_tenant=SelectTenant(
+            uow_factory=identity_uow,
+            clock=clock,
+            token_service=token_service,
+            refresh_ttl=refresh_ttl,
+            events=dispatcher,
+        ),
+        change_password=ChangePassword(
+            uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
+        ),
+        create_invitation=CreateInvitation(
+            uow_factory=identity_uow, clock=clock, token_service=token_service, events=dispatcher
+        ),
+        provision_membership=ProvisionMembership(
+            uow_factory=identity_uow, clock=clock, events=dispatcher
+        ),
+        create_service_account=CreateServiceAccount(
+            uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
+        ),
+        authenticate_service_account=AuthenticateServiceAccount(
+            uow_factory=identity_uow,
+            clock=clock,
+            hasher=hasher,
+            token_service=token_service,
+            events=dispatcher,
+        ),
+        rotate_service_account=RotateServiceAccountSecret(
+            uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
+        ),
+        revoke_service_account=RevokeServiceAccount(
+            uow_factory=identity_uow, clock=clock, events=dispatcher
+        ),
+        create_role=CreateRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
+        get_role=GetRole(uow_factory=identity_uow, clock=clock),
+        list_roles=ListRoles(uow_factory=identity_uow, clock=clock),
+        assign_role=AssignRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
+        revoke_role=RevokeRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
+        create_policy=CreatePolicy(uow_factory=identity_uow, clock=clock, events=dispatcher),
+        get_policy=GetPolicy(uow_factory=identity_uow, clock=clock),
+        list_policies=ListPolicies(uow_factory=identity_uow, clock=clock),
+        update_policy_status=UpdatePolicyStatus(
+            uow_factory=identity_uow, clock=clock, events=dispatcher
+        ),
     )
 
 
@@ -301,8 +815,11 @@ def get_use_cases(
     scope: Annotated[SqlAlchemyTransactionScope, Depends(get_transaction_scope)],
     clock: Annotated[Clock, Depends(get_clock)],
     events: Annotated[EventDispatcher | None, Depends(get_event_dispatcher)],
+    auth_service: Annotated[ApplicationAuthorizationService, Depends(get_authorization_service)],
 ) -> UseCases:
-    return build_use_cases(settings=settings, clock=clock, scope=scope, events=events)
+    return build_use_cases(
+        settings=settings, clock=clock, scope=scope, events=events, authorizer=auth_service
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -340,16 +857,47 @@ def parse_if_match(
         ) from exc
 
 
-def get_admin_context(
-    context: Annotated[RequestContext, Depends(get_request_context)],
+async def get_admin_context(
+    request: Request,
+    principal: Annotated[Principal, Depends(require_current_principal)],
+    scope: Annotated[SqlAlchemyTransactionScope | None, Depends(get_transaction_scope)] = None,
 ) -> RequestContext:
-    """Context for platform-wide administrative endpoints."""
-    if context.actor_type not in (ActorType.SYSTEM, ActorType.SERVICE_ACCOUNT):
-        raise InvalidRequest(
-            "administrative operations require system or service_account privileges",
-            details={"actor_type": str(context.actor_type)},
-        )
-    return context
+    """Context for platform-wide administrative endpoints.
+
+    Requires an authenticated principal with administrative or service account privileges.
+    Untrusted headers such as X-Actor-Type are never used as an authority source.
+    """
+    is_admin = (
+        principal.type in (ActorType.SYSTEM, ActorType.SERVICE_ACCOUNT)
+        or principal.is_tenant_admin
+        or "ADMIN" in principal.roles
+        or principal.role == "ADMIN"
+        or principal.has_permission("*")
+        or principal.has_permission("access.roles.manage")
+    )
+    if not is_admin:
+        raise Forbidden("administrative operations require system, service account, or administrator privileges")
+
+    if scope is not None and hasattr(scope, "set_bypass_rls"):
+        await scope.set_bypass_rls(True)
+
+    correlation_id = (
+        request.headers.get("X-Correlation-Id")
+        or getattr(request.state, "correlation_id", None)
+        or str(uuid.uuid4())
+    )
+    idempotency_header = request.headers.get("Idempotency-Key")
+    key = idempotency_header.strip() if idempotency_header else None
+
+    return RequestContext(
+        tenant_id=principal.active_tenant_id,
+        actor_id=principal.id,
+        actor_type=principal.type,
+        correlation_id=correlation_id,
+        idempotency_key=key,
+        received_at=datetime.now(UTC),
+        principal=principal,
+    )
 
 
 def get_catalog_search_reader(
@@ -409,18 +957,26 @@ __all__ = [
     "build_use_cases",
     "get_admin_context",
     "get_application_settings",
+    "get_authenticated_tenant_context",
+    "get_authorization_service",
     "get_cache",
     "get_catalog_search_reader",
     "get_clock",
+    "get_current_principal",
     "get_database",
     "get_event_dispatcher",
+    "get_password_hasher",
     "get_reconciliation_service",
     "get_reindexing_service",
     "get_request_context",
     "get_search_indexer",
     "get_search_service",
     "get_tenant_context",
+    "get_token_service",
     "get_transaction_scope",
     "get_use_cases",
     "parse_if_match",
+    "require_current_principal",
+    "require_permission",
+    "require_tenant_admin",
 ]
