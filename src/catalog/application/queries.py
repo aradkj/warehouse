@@ -24,6 +24,9 @@ from shared.application.use_case import QueryUseCase
 class GetProduct(QueryUseCase[GetProductQuery, ProductView, CatalogUnitOfWork]):
     """Fetch one product together with its SKUs."""
 
+    permission = "catalog.products.read"
+    resource_type = "products"
+
     async def _execute(self, uow: CatalogUnitOfWork, command: GetProductQuery) -> ProductView:
         tenant_id = command.tenant_id
         product = await uow.products.get(tenant_id=tenant_id, product_id=command.product_id)
@@ -36,6 +39,9 @@ class GetProduct(QueryUseCase[GetProductQuery, ProductView, CatalogUnitOfWork]):
 class GetSku(QueryUseCase[GetSkuQuery, SkuView, CatalogUnitOfWork]):
     """Fetch one SKU."""
 
+    permission = "catalog.products.read"
+    resource_type = "products"
+
     async def _execute(self, uow: CatalogUnitOfWork, command: GetSkuQuery) -> SkuView:
         sku = await uow.skus.get(tenant_id=command.tenant_id, sku_id=command.sku_id)
         if sku is None:
@@ -45,6 +51,9 @@ class GetSku(QueryUseCase[GetSkuQuery, SkuView, CatalogUnitOfWork]):
 
 class ListProducts(QueryUseCase[ListProductsQuery, Page[ProductView], CatalogUnitOfWork]):
     """Keyset-paginated product list, optionally filtered by lifecycle state."""
+
+    permission = "catalog.products.read"
+    resource_type = "products"
 
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ListProductsQuery

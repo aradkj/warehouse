@@ -64,17 +64,24 @@ class RabbitMQPublisher:
         }
 
         body = json.dumps(envelope).encode("utf-8")
+        msg_headers: dict[str, Any] = {
+            "x-tenant-id": str(event.tenant_id),
+            "x-correlation-id": event.correlation_id,
+            "x-causation-id": event.causation_id or str(event.id),
+            "x-schema-version": event.schema_version,
+            "x-event-type": event.event_type,
+        }
+        if event.headers and isinstance(event.headers, dict):
+            if "actor_id" in event.headers:
+                msg_headers["x-actor-id"] = str(event.headers["actor_id"])
+            if "actor_type" in event.headers:
+                msg_headers["x-actor-type"] = str(event.headers["actor_type"])
+
         message = aio_pika.Message(
             body=body,
             content_type="application/json",
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            headers={
-                "x-tenant-id": str(event.tenant_id),
-                "x-correlation-id": event.correlation_id,
-                "x-causation-id": event.causation_id or str(event.id),
-                "x-schema-version": event.schema_version,
-                "x-event-type": event.event_type,
-            },
+            headers=msg_headers,
             message_id=str(event.id),
             timestamp=event.occurred_at,
         )

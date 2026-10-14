@@ -20,6 +20,17 @@ class SqlAlchemyAuditAdapter(AuditPort):
     def __init__(self, session: Any) -> None:
         self._target = session
 
+    @property
+    def _session(self) -> AsyncSession:
+        from shared.infrastructure.db.session import SqlAlchemyTransactionScope
+
+        if isinstance(self._target, SqlAlchemyTransactionScope):
+            return self._target.session
+        if callable(self._target):
+            return self._target()
+        return self._target
+
+
     async def record(self, entry: AuditEntry) -> None:
         """Insert an audit record into the audit_logs table."""
         # Redact any credential or secret details before persistence

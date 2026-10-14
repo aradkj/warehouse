@@ -114,8 +114,9 @@ class ApplicationAuthorizationService(AuthorizationPort):
                 id=req.principal_id,
                 type=req.principal_type,
                 active_tenant_id=req.tenant_id,
-                role=req.roles[0] if req.roles else "MEMBER",
+                role=req.roles[0] if req.roles else None,
                 roles=req.roles,
+                attributes=req.subject_attributes,
             )
             perms = await self.get_effective_permissions(principal, req.tenant_id)
             req = AuthorizationRequest(
@@ -147,6 +148,8 @@ class ApplicationAuthorizationService(AuthorizationPort):
         # Audit recording for sensitive operations or denials
         if self._audit is not None:
             try:
+                corr_id = req.environment.get("correlation_id")
+                caus_id = req.environment.get("causation_id") or corr_id
                 entry = AuditEntry(
                     audit_id=str(uuid.uuid4()),
                     tenant_id=str(req.tenant_id) if req.tenant_id else "system",
@@ -154,8 +157,8 @@ class ApplicationAuthorizationService(AuthorizationPort):
                     action=req.action,
                     resource_type=req.resource_type,
                     resource_id=req.resource_id or "none",
-                    correlation_id=req.environment.get("correlation_id"),
-                    causation_id=None,
+                    correlation_id=corr_id,
+                    causation_id=caus_id,
                     occurred_at=datetime.now(UTC),
                     before=None,
                     after={

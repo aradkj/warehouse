@@ -40,6 +40,8 @@ class CreateProduct(UseCase[CreateProductCommand, ProductView, CatalogUnitOfWork
     """Create a product in ``DRAFT`` and return its representation."""
 
     operation = "catalog.create_product"
+    permission = "catalog.products.manage"
+    resource_type = "products"
     success_status = 201
 
     async def _execute(
@@ -87,6 +89,8 @@ class ReviseProduct(UseCase[ReviseProductCommand, ProductView, CatalogUnitOfWork
     """Change descriptive metadata of a non-archived product."""
 
     operation = "catalog.revise_product"
+    permission = "catalog.products.manage"
+    resource_type = "products"
     success_status = 200
 
     async def _execute(
@@ -142,6 +146,8 @@ class ActivateProduct(UseCase[ChangeProductStateCommand, ProductView, CatalogUni
     """Move a product from ``DRAFT`` to ``ACTIVE``."""
 
     operation = "catalog.activate_product"
+    permission = "catalog.products.manage"
+    resource_type = "products"
     success_status = 200
 
     async def _execute(
@@ -181,6 +187,8 @@ class ArchiveProduct(UseCase[ChangeProductStateCommand, ProductView, CatalogUnit
     """Retire a product permanently (terminal transition)."""
 
     operation = "catalog.archive_product"
+    permission = "catalog.products.manage"
+    resource_type = "products"
     success_status = 200
 
     async def _execute(
@@ -220,6 +228,8 @@ class CreateSku(UseCase[CreateSkuCommand, SkuView, CatalogUnitOfWork]):
     """Add a SKU to an existing, non-archived product."""
 
     operation = "catalog.create_sku"
+    permission = "catalog.products.manage"
+    resource_type = "sku"
     success_status = 201
 
     async def _execute(
@@ -270,6 +280,8 @@ class ChangeSkuPrice(UseCase[ChangeSkuPriceCommand, SkuView, CatalogUnitOfWork])
     """
 
     operation = "catalog.change_sku_price"
+    permission = "catalog.products.manage"
+    resource_type = "sku"
     success_status = 200
 
     async def _execute(
@@ -308,11 +320,20 @@ class DeactivateSku(UseCase[ChangeSkuStateCommand, SkuView, CatalogUnitOfWork]):
     """Withdraw a SKU from sale."""
 
     operation = "catalog.deactivate_sku"
+    permission = "catalog.products.manage"
+    resource_type = "sku"
     success_status = 200
 
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ChangeSkuStateCommand
     ) -> Executed[SkuView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="sku",
+            resource_id=str(command.sku_id),
+            resource_tenant_id=command.tenant_id,
+        )
         return await _transition_sku(uow, command, activate=False, now=self._clock.now())
 
     async def _reload(
@@ -326,11 +347,20 @@ class ActivateSku(UseCase[ChangeSkuStateCommand, SkuView, CatalogUnitOfWork]):
     """Return a previously deactivated SKU to sale."""
 
     operation = "catalog.activate_sku"
+    permission = "catalog.products.manage"
+    resource_type = "sku"
     success_status = 200
 
     async def _execute(
         self, uow: CatalogUnitOfWork, command: ChangeSkuStateCommand
     ) -> Executed[SkuView]:
+        await self._authorize(
+            command.context,
+            action="catalog.products.manage",
+            resource_type="sku",
+            resource_id=str(command.sku_id),
+            resource_tenant_id=command.tenant_id,
+        )
         return await _transition_sku(uow, command, activate=True, now=self._clock.now())
 
     async def _reload(

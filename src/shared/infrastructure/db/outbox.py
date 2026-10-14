@@ -113,6 +113,15 @@ class SqlAlchemyOutboxEventDispatcher(EventDispatcher):
                 "causation_id": causation_id,
                 "event_name": event.event_name,
             }
+            if context is not None:
+                if context.actor_id:
+                    headers["actor_id"] = str(context.actor_id)
+                if context.actor_type:
+                    headers["actor_type"] = (
+                        context.actor_type.value
+                        if hasattr(context.actor_type, "value")
+                        else str(context.actor_type)
+                    )
 
             stmt = insert(outbox_events).values(
                 id=event.event_id,

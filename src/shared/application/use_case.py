@@ -113,6 +113,9 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
     #: When true, the use case bypasses PostgreSQL RLS (e.g. platform authentication).
     bypass_rls: ClassVar[bool] = False
 
+    permission: ClassVar[str | None] = None
+    resource_type: ClassVar[str | None] = None
+
     def __init__(
         self,
         *,
@@ -127,6 +130,35 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         self._events: EventDispatcher = events or NullEventDispatcher()
         self._idempotency_retention = idempotency_retention
         self._authorizer = authorizer
+
+    @staticmethod
+    def _validate_tenant_consistency(command: Any, context: RequestContext | None) -> None:
+        """Ensure tenant context is authoritative and fail-closed against cross-tenant tampering."""
+        if context is None:
+            return
+        from shared.application.errors import Forbidden
+
+        cmd_tenant = getattr(command, "tenant_id", None)
+        ctx_tenant = getattr(context, "tenant_id", None)
+        if cmd_tenant is not None and ctx_tenant is not None and str(cmd_tenant) != str(ctx_tenant):
+            raise Forbidden(
+                "tenant mismatch between command and execution context",
+                details={"command_tenant": str(cmd_tenant), "context_tenant": str(ctx_tenant)},
+            )
+
+        principal = getattr(context, "principal", None)
+        if principal is not None and getattr(principal, "active_tenant_id", None) is not None:
+            active_tenant = str(principal.active_tenant_id)
+            if cmd_tenant is not None and str(cmd_tenant) != active_tenant:
+                raise Forbidden(
+                    "tenant mismatch between command and principal active tenant",
+                    details={"command_tenant": str(cmd_tenant), "principal_tenant": active_tenant},
+                )
+            if ctx_tenant is not None and str(ctx_tenant) != active_tenant:
+                raise Forbidden(
+                    "tenant mismatch between context and principal active tenant",
+                    details={"context_tenant": str(ctx_tenant), "principal_tenant": active_tenant},
+                )
 
     async def _authorize(
         self,
@@ -148,6 +180,20 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         principal: Principal | None = getattr(context, "principal", None)
         if principal is None and context.actor_type == ActorType.SYSTEM:
             principal = Principal(id="system", type=ActorType.SYSTEM)
+        elif principal is None:
+            from shared.application.errors import Unauthorized
+            raise Unauthorized(
+                "authentication required: no authenticated principal on execution context",
+                details={"action": action, "resource_type": resource_type},
+            )
+
+        subject_attrs: dict[str, Any] = {}
+        if principal and getattr(principal, "attributes", None):
+            subject_attrs.update(principal.attributes)
+
+        env: dict[str, Any] = {"correlation_id": context.correlation_id}
+        if getattr(context, "causation_id", None):
+            env["causation_id"] = context.causation_id
 
         req = AuthorizationRequest(
             action=action,
@@ -157,10 +203,11 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             tenant_id=context.tenant_id,
             roles=principal.roles if principal else (),
             permissions=principal.permissions if principal else frozenset(),
+            subject_attributes=subject_attrs,
             resource_id=resource_id,
             resource_tenant_id=resource_tenant_id or context.tenant_id,
             resource_attributes=resource_attributes or {},
-            environment={"correlation_id": context.correlation_id},
+            environment=env,
         )
         decision = await self._authorizer.authorize(req)
         if not decision.allowed:
@@ -169,10 +216,36 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
                 details={"reason": decision.reason.value, "reason_details": decision.reason_details},
             )
 
+    async def _authorize_replay(
+        self, uow: UowT, record: IdempotencyRecord, command: CommandT
+    ) -> None:
+        """Verify the replaying caller is authorized before returning idempotent replay result."""
+        action = getattr(self, "permission", None) or self.operation
+        res_type = getattr(self, "resource_type", None) or record.resource_type or "resource"
+        tenant_id = self.tenant_of(command)
+        await self._authorize(
+            command.context,
+            action=action,
+            resource_type=res_type,
+            resource_id=record.resource_id,
+            resource_tenant_id=tenant_id,
+        )
+
     # -- public API --------------------------------------------------------
     async def __call__(self, command: CommandT) -> Outcome[ViewT]:
         context: RequestContext = command.context
+        self._validate_tenant_consistency(command, context)
         tenant_id = self.tenant_of(command)
+
+        # Early authorization check before modifying database or acquiring idempotency claims
+        if self.permission is not None and self._authorizer is not None:
+            await self._authorize(
+                context,
+                action=self.permission,
+                resource_type=self.resource_type or "resource",
+                resource_tenant_id=tenant_id,
+            )
+
         key = context.idempotency_key
         if self.idempotency_required and not key:
             raise IdempotencyKeyRequired(
@@ -184,6 +257,7 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
                 "idempotency keys are only supported for tenant-scoped operations",
                 details={"operation": self.operation},
             )
+
         now = self._clock.now()
         async with self._uow_factory() as uow:
             scope = getattr(uow, "_scope", None)
@@ -209,6 +283,7 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
                 )
                 if claim.outcome is IdempotencyOutcome.REPLAY:
                     record = claim.record
+                    await self._authorize_replay(uow, record, command)
                     view = await self._reload(uow, record, command)
                     return Outcome(
                         view=view,
@@ -283,14 +358,118 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
     """
 
     bypass_rls: ClassVar[bool] = False
+    permission: ClassVar[str | None] = None
+    resource_type: ClassVar[str | None] = None
 
-    def __init__(self, *, uow_factory: Callable[[], UowT], clock: Clock) -> None:
+    def __init__(
+        self,
+        *,
+        uow_factory: Callable[[], UowT],
+        clock: Clock,
+        authorizer: Any | None = None,
+    ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
+        self._authorizer = authorizer
+
+    @staticmethod
+    def _validate_tenant_consistency(command: Any, context: RequestContext | None) -> None:
+        """Ensure tenant context is authoritative and fail-closed against cross-tenant tampering."""
+        if context is None:
+            return
+        from shared.application.errors import Forbidden
+
+        cmd_tenant = getattr(command, "tenant_id", None)
+        ctx_tenant = getattr(context, "tenant_id", None)
+        if cmd_tenant is not None and ctx_tenant is not None and str(cmd_tenant) != str(ctx_tenant):
+            raise Forbidden(
+                "tenant mismatch between command and execution context",
+                details={"command_tenant": str(cmd_tenant), "context_tenant": str(ctx_tenant)},
+            )
+
+        principal = getattr(context, "principal", None)
+        if principal is not None and getattr(principal, "active_tenant_id", None) is not None:
+            active_tenant = str(principal.active_tenant_id)
+            if cmd_tenant is not None and str(cmd_tenant) != active_tenant:
+                raise Forbidden(
+                    "tenant mismatch between command and principal active tenant",
+                    details={"command_tenant": str(cmd_tenant), "principal_tenant": active_tenant},
+                )
+            if ctx_tenant is not None and str(ctx_tenant) != active_tenant:
+                raise Forbidden(
+                    "tenant mismatch between context and principal active tenant",
+                    details={"context_tenant": str(ctx_tenant), "principal_tenant": active_tenant},
+                )
+
+    async def _authorize(
+        self,
+        context: RequestContext,
+        action: str,
+        resource_type: str,
+        resource_id: str | None = None,
+        resource_tenant_id: Any | None = None,
+        resource_attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Evaluate authorization through the configured AuthorizationPort."""
+        if self._authorizer is None:
+            return
+
+        from identity.ports.authorization import AuthorizationRequest, Principal
+        from shared.application.context import ActorType
+        from shared.application.errors import Forbidden
+
+        principal: Principal | None = getattr(context, "principal", None)
+        if principal is None and context.actor_type == ActorType.SYSTEM:
+            principal = Principal(id="system", type=ActorType.SYSTEM)
+        elif principal is None:
+            from shared.application.errors import Unauthorized
+            raise Unauthorized(
+                "authentication required: no authenticated principal on execution context",
+                details={"action": action, "resource_type": resource_type},
+            )
+
+        subject_attrs: dict[str, Any] = {}
+        if principal and getattr(principal, "attributes", None):
+            subject_attrs.update(principal.attributes)
+
+        env: dict[str, Any] = {"correlation_id": context.correlation_id}
+        if getattr(context, "causation_id", None):
+            env["causation_id"] = context.causation_id
+
+        req = AuthorizationRequest(
+            action=action,
+            resource_type=resource_type,
+            principal_id=principal.id if principal else (context.actor_id if context.actor_id != "unknown" else None),
+            principal_type=principal.type if principal else context.actor_type,
+            tenant_id=context.tenant_id,
+            roles=principal.roles if principal else (),
+            permissions=principal.permissions if principal else frozenset(),
+            subject_attributes=subject_attrs,
+            resource_id=resource_id,
+            resource_tenant_id=resource_tenant_id or context.tenant_id,
+            resource_attributes=resource_attributes or {},
+            environment=env,
+        )
+        decision = await self._authorizer.authorize(req)
+        if not decision.allowed:
+            raise Forbidden(
+                f"operation '{action}' not authorized on {resource_type}",
+                details={"reason": decision.reason.value, "reason_details": decision.reason_details},
+            )
 
     async def __call__(self, command: CommandT) -> ViewT:
         context = getattr(command, "context", None)
+        self._validate_tenant_consistency(command, context)
         tenant_id = getattr(command, "tenant_id", None) or (getattr(context, "tenant_id", None) if context else None)
+
+        if self.permission is not None and self._authorizer is not None and context is not None:
+            await self._authorize(
+                context,
+                action=self.permission,
+                resource_type=self.resource_type or "resource",
+                resource_tenant_id=tenant_id,
+            )
+
         async with self._uow_factory() as uow:
             scope = getattr(uow, "_scope", None)
             if scope is not None:

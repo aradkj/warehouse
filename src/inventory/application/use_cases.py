@@ -64,11 +64,20 @@ class RegisterWarehouse(UseCase[RegisterWarehouseCommand, WarehouseView, Invento
     """Create a stocking location."""
 
     operation = "inventory.register_warehouse"
+    permission = "inventory.warehouses.manage"
+    resource_type = "warehouse"
     success_status = 201
 
     async def _execute(
         self, uow: InventoryUnitOfWork, command: RegisterWarehouseCommand
     ) -> Executed[WarehouseView]:
+        await self._authorize(
+            command.context,
+            action="inventory.warehouses.manage",
+            resource_type="warehouse",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"code": command.code, "name": command.name},
+        )
         warehouse = Warehouse.register(
             tenant_id=command.tenant_id,
             code=command.code,
@@ -103,6 +112,8 @@ class AdjustInventory(UseCase[AdjustInventoryCommand, AdjustmentView, InventoryU
     """
 
     operation = "inventory.adjust_stock"
+    permission = "inventory.adjust"
+    resource_type = "inventory"
     success_status = 200
 
     async def _execute(
@@ -115,6 +126,7 @@ class AdjustInventory(UseCase[AdjustInventoryCommand, AdjustmentView, InventoryU
         if not await uow.sku_exists(tenant_id=command.tenant_id, sku_id=command.sku_id):
             raise NotFound("sku", command.sku_id)
 
+        adjustment_type = "increase" if command.quantity_delta > 0 else "decrease"
         await self._authorize(
             command.context,
             action="inventory.adjust",
@@ -124,7 +136,9 @@ class AdjustInventory(UseCase[AdjustInventoryCommand, AdjustmentView, InventoryU
             resource_attributes={
                 "warehouse_id": str(command.warehouse_id),
                 "sku_id": str(command.sku_id),
+                "quantity": abs(command.quantity_delta),
                 "quantity_delta": command.quantity_delta,
+                "adjustment_type": adjustment_type,
             },
         )
 
@@ -175,6 +189,8 @@ class ReserveInventory(
     """Hold stock for one or more SKUs, across warehouses when necessary."""
 
     operation = "inventory.reserve"
+    permission = "reservations.create"
+    resource_type = "reservations"
     success_status = 201
 
     def __init__(
@@ -320,6 +336,8 @@ class ReleaseReservation(UseCase[ReleaseReservationCommand, ReservationView, Inv
     """
 
     operation = "inventory.release_reservation"
+    permission = "reservations.release"
+    resource_type = "reservations"
     success_status = 200
 
     async def _execute(
@@ -392,6 +410,8 @@ class ConfirmReservation(UseCase[ConfirmReservationCommand, ReservationView, Inv
     """
 
     operation = "inventory.confirm_reservation"
+    permission = "reservations.create"
+    resource_type = "reservations"
     success_status = 200
 
     async def _execute(
@@ -450,12 +470,20 @@ class ExpireReservations(UseCase[ExpireReservationsCommand, int, InventoryUnitOf
     """
 
     operation = "inventory.expire_reservations"
+    permission = "inventory.expire"
+    resource_type = "reservations"
     success_status = 200
     bypass_rls: ClassVar[bool] = True
 
     async def _execute(
         self, uow: InventoryUnitOfWork, command: ExpireReservationsCommand
     ) -> Executed[int]:
+        await self._authorize(
+            command.context,
+            action="inventory.expire",
+            resource_type="reservations",
+            resource_tenant_id=command.context.tenant_id,
+        )
         now = self._clock.now()
         tenant_id = command.context.tenant_id
         expired_batch = await uow.reservations.find_expired_active_for_update(

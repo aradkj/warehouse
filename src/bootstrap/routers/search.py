@@ -123,7 +123,17 @@ async def reindex_products(
     Executes zero-downtime rebuild using a versioned index and an atomic alias swap.
     If async_mode is True, dispatches a Celery task and immediately returns 202 Accepted.
     """
-    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else None
+    if _context.tenant_id is not None:
+        if payload.tenant_id is None:
+            from shared.application.errors import Forbidden
+
+            raise Forbidden("tenant administrators must specify their own tenant_id")
+        if str(payload.tenant_id) != str(_context.tenant_id):
+            from shared.application.errors import Forbidden
+
+            raise Forbidden("cannot perform administrative search operations on another tenant")
+
+    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else (_context.tenant_id and str(_context.tenant_id))
     if payload.async_mode:
         from bootstrap.workers import reindex_products_task
 
@@ -165,7 +175,17 @@ async def reconcile_products(
     Compares PostgreSQL (source of truth) with Elasticsearch read models in bounded chunks.
     If async_mode is True, dispatches a Celery task and immediately returns 202 Accepted.
     """
-    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else None
+    if _context.tenant_id is not None:
+        if payload.tenant_id is None:
+            from shared.application.errors import Forbidden
+
+            raise Forbidden("tenant administrators must specify their own tenant_id")
+        if str(payload.tenant_id) != str(_context.tenant_id):
+            from shared.application.errors import Forbidden
+
+            raise Forbidden("cannot perform administrative search operations on another tenant")
+
+    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else (_context.tenant_id and str(_context.tenant_id))
     if payload.async_mode:
         from bootstrap.workers import reconcile_products_task
 

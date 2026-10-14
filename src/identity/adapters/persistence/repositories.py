@@ -495,7 +495,6 @@ class SqlAlchemyServiceAccountRepository:
                 insert(service_account_scopes).values(
                     service_account_id=service_account.id,
                     scope=scope,
-                    created_at=service_account.created_at,
                 )
             )
 
@@ -582,7 +581,6 @@ class SqlAlchemyServiceAccountRepository:
                 insert(service_account_scopes).values(
                     service_account_id=service_account.id,
                     scope=scope,
-                    created_at=service_account.updated_at,
                 )
             )
 

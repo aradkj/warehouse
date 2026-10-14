@@ -12,6 +12,9 @@ from shared.application.use_case import QueryUseCase
 class GetOrder(QueryUseCase[GetOrderQuery, OrderView, OrderingUnitOfWork]):
     """Fetch one order, including the summary of its inventory hold."""
 
+    permission = "orders.read"
+    resource_type = "orders"
+
     async def _execute(self, uow: OrderingUnitOfWork, command: GetOrderQuery) -> OrderView:
         order = await uow.orders.get(tenant_id=command.tenant_id, order_id=command.order_id)
         if order is None:
@@ -28,6 +31,9 @@ class ListOrders(QueryUseCase[ListOrdersQuery, Page[OrderView], OrderingUnitOfWo
     List rows deliberately omit the reservation summary: including it would turn
     one page into N+1 cross-context reads. Fetch a single order for the detail.
     """
+
+    permission = "orders.read"
+    resource_type = "orders"
 
     async def _execute(self, uow: OrderingUnitOfWork, command: ListOrdersQuery) -> Page[OrderView]:
         limit = normalise_limit(command.limit)

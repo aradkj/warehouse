@@ -90,29 +90,26 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
         except (ValueError, TypeError):
             return None
 
-        async with self._database.session_factory() as session:
-            async with session.begin():
-                await session.execute(
-                    text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                    {"tid": str(t_uuid)},
-                )
-                stmt = select(products).where(
-                    products.c.tenant_id == t_uuid,
-                    products.c.id == p_uuid,
-                )
-                result = await session.execute(stmt)
-                p = result.fetchone()
-                if p is None:
-                    return None
+        scope = self._database.new_scope(tenant_id=str(t_uuid))
+        async with scope:
+            session = scope.session
+            stmt = select(products).where(
+                products.c.tenant_id == t_uuid,
+                products.c.id == p_uuid,
+            )
+            result = await session.execute(stmt)
+            p = result.fetchone()
+            if p is None:
+                return None
 
-                skus_stmt = select(skus).where(
-                    skus.c.tenant_id == t_uuid,
-                    skus.c.product_id == p_uuid,
-                )
-                skus_res = await session.execute(skus_stmt)
-                sku_rows = list(skus_res.fetchall())
+            skus_stmt = select(skus).where(
+                skus.c.tenant_id == t_uuid,
+                skus.c.product_id == p_uuid,
+            )
+            skus_res = await session.execute(skus_stmt)
+            sku_rows = list(skus_res.fetchall())
 
-                return self._row_to_search_document(p, sku_rows, target_alias)
+            return self._row_to_search_document(p, sku_rows, target_alias)
 
     async def stream_search_documents(
         self,
@@ -131,50 +128,45 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
 
         last_id: uuid.UUID | None = None
         while True:
-            async with self._database.session_factory() as session:
-                async with session.begin():
-                    if t_uuid is not None:
-                        await session.execute(
-                            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                            {"tid": str(t_uuid)},
-                        )
-                    else:
-                        await session.execute(
-                            text("SELECT set_config('app.bypass_rls', 'on', true)")
-                        )
-                    stmt = select(products)
-                    if t_uuid is not None:
-                        stmt = stmt.where(products.c.tenant_id == t_uuid)
-                    if last_id is not None:
-                        stmt = stmt.where(products.c.id > last_id)
-                    stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)
+            scope = self._database.new_scope(
+                tenant_id=str(t_uuid) if t_uuid is not None else None,
+                bypass_rls=t_uuid is None,
+            )
+            async with scope:
+                session = scope.session
+                stmt = select(products)
+                if t_uuid is not None:
+                    stmt = stmt.where(products.c.tenant_id == t_uuid)
+                if last_id is not None:
+                    stmt = stmt.where(products.c.id > last_id)
+                stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)
 
-                    result = await session.execute(stmt)
-                    prod_rows = list(result.fetchall())
-                    if not prod_rows:
-                        break
+                result = await session.execute(stmt)
+                prod_rows = list(result.fetchall())
+                if not prod_rows:
+                    break
 
-                    last_id = prod_rows[-1].id
-                    prod_ids = [p.id for p in prod_rows]
-                    skus_stmt = select(skus).where(skus.c.product_id.in_(prod_ids))
-                    if t_uuid is not None:
-                        skus_stmt = skus_stmt.where(skus.c.tenant_id == t_uuid)
+                last_id = prod_rows[-1].id
+                prod_ids = [p.id for p in prod_rows]
+                skus_stmt = select(skus).where(skus.c.product_id.in_(prod_ids))
+                if t_uuid is not None:
+                    skus_stmt = skus_stmt.where(skus.c.tenant_id == t_uuid)
 
-                    skus_res = await session.execute(skus_stmt)
-                    skus_rows = list(skus_res.fetchall())
+                skus_res = await session.execute(skus_stmt)
+                skus_rows = list(skus_res.fetchall())
 
-                    skus_by_product: dict[uuid.UUID, list[Any]] = {}
-                    for s in skus_rows:
-                        skus_by_product.setdefault(s.product_id, []).append(s)
+                skus_by_product: dict[uuid.UUID, list[Any]] = {}
+                for s in skus_rows:
+                    skus_by_product.setdefault(s.product_id, []).append(s)
 
-                    batch_docs: list[SearchDocument] = [
-                        self._row_to_search_document(p, skus_by_product.get(p.id, []), target_alias)
-                        for p in prod_rows
-                    ]
+                batch_docs: list[SearchDocument] = [
+                    self._row_to_search_document(p, skus_by_product.get(p.id, []), target_alias)
+                    for p in prod_rows
+                ]
 
-                    yield tuple(batch_docs)
-                    if len(prod_rows) < batch_size:
-                        break
+                yield tuple(batch_docs)
+                if len(prod_rows) < batch_size:
+                    break
 
     async def count_authoritative_products(self, *, tenant_id: str | None = None) -> int:
         """Return total count of products in authoritative database."""
@@ -185,23 +177,18 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
             except (ValueError, TypeError):
                 return 0
 
-        async with self._database.session_factory() as session:
-            async with session.begin():
-                if t_uuid is not None:
-                    await session.execute(
-                        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                        {"tid": str(t_uuid)},
-                    )
-                else:
-                    await session.execute(
-                        text("SELECT set_config('app.bypass_rls', 'on', true)")
-                    )
-                stmt = select(func.count(products.c.id))
-                if t_uuid is not None:
-                    stmt = stmt.where(products.c.tenant_id == t_uuid)
-                result = await session.execute(stmt)
-                val = result.scalar_one()
-                return int(val or 0)
+        scope = self._database.new_scope(
+            tenant_id=str(t_uuid) if t_uuid is not None else None,
+            bypass_rls=t_uuid is None,
+        )
+        async with scope:
+            session = scope.session
+            stmt = select(func.count(products.c.id))
+            if t_uuid is not None:
+                stmt = stmt.where(products.c.tenant_id == t_uuid)
+            result = await session.execute(stmt)
+            val = result.scalar_one()
+            return int(val or 0)
 
     async def get_authoritative_keys(
         self, *, tenant_id: str | None = None
@@ -214,25 +201,20 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
             except (ValueError, TypeError):
                 return {}
 
-        async with self._database.session_factory() as session:
-            async with session.begin():
-                if t_uuid is not None:
-                    await session.execute(
-                        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                        {"tid": str(t_uuid)},
-                    )
-                else:
-                    await session.execute(
-                        text("SELECT set_config('app.bypass_rls', 'on', true)")
-                    )
-                stmt = select(products.c.id, products.c.tenant_id, products.c.version)
-                if t_uuid is not None:
-                    stmt = stmt.where(products.c.tenant_id == t_uuid)
-                result = await session.execute(stmt)
-                rows = result.fetchall()
-                return {
-                    f"{row.tenant_id}:{row.id}": (str(row.tenant_id), int(row.version)) for row in rows
-                }
+        scope = self._database.new_scope(
+            tenant_id=str(t_uuid) if t_uuid is not None else None,
+            bypass_rls=t_uuid is None,
+        )
+        async with scope:
+            session = scope.session
+            stmt = select(products.c.id, products.c.tenant_id, products.c.version)
+            if t_uuid is not None:
+                stmt = stmt.where(products.c.tenant_id == t_uuid)
+            result = await session.execute(stmt)
+            rows = result.fetchall()
+            return {
+                f"{row.tenant_id}:{row.id}": (str(row.tenant_id), int(row.version)) for row in rows
+            }
 
     async def stream_authoritative_keys(
         self,
@@ -250,37 +232,32 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
 
         last_id: uuid.UUID | None = None
         while True:
-            async with self._database.session_factory() as session:
-                async with session.begin():
-                    if t_uuid is not None:
-                        await session.execute(
-                            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                            {"tid": str(t_uuid)},
-                        )
-                    else:
-                        await session.execute(
-                            text("SELECT set_config('app.bypass_rls', 'on', true)")
-                        )
-                    stmt = select(products.c.id, products.c.tenant_id, products.c.version)
-                    if t_uuid is not None:
-                        stmt = stmt.where(products.c.tenant_id == t_uuid)
-                    if last_id is not None:
-                        stmt = stmt.where(products.c.id > last_id)
-                    stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)
+            scope = self._database.new_scope(
+                tenant_id=str(t_uuid) if t_uuid is not None else None,
+                bypass_rls=t_uuid is None,
+            )
+            async with scope:
+                session = scope.session
+                stmt = select(products.c.id, products.c.tenant_id, products.c.version)
+                if t_uuid is not None:
+                    stmt = stmt.where(products.c.tenant_id == t_uuid)
+                if last_id is not None:
+                    stmt = stmt.where(products.c.id > last_id)
+                stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)
 
-                    result = await session.execute(stmt)
-                    rows = list(result.fetchall())
-                    if not rows:
-                        break
+                result = await session.execute(stmt)
+                rows = list(result.fetchall())
+                if not rows:
+                    break
 
-                    last_id = rows[-1].id
-                    chunk = {
-                        f"{row.tenant_id}:{row.id}": (str(row.tenant_id), int(row.version))
-                        for row in rows
-                    }
-                    yield chunk
-                    if len(rows) < batch_size:
-                        break
+                last_id = rows[-1].id
+                chunk = {
+                    f"{row.tenant_id}:{row.id}": (str(row.tenant_id), int(row.version))
+                    for row in rows
+                }
+                yield chunk
+                if len(rows) < batch_size:
+                    break
 
 
 __all__ = ["SqlAlchemyCatalogSearchReader"]

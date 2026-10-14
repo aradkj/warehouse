@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from typing import Any
+
 from identity.domain.permission import has_permission
 from shared.application.context import ActorType, RequestContext
 from shared.domain.identifiers import MembershipId, TenantId
@@ -24,6 +26,11 @@ class Principal:
     role: str = "MEMBER"
     roles: tuple[str, ...] = ("MEMBER",)
     permissions: frozenset[str] = field(default_factory=frozenset)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def tenant_id(self) -> TenantId | None:
+        return self.active_tenant_id
 
     @property
     def is_user(self) -> bool:
@@ -56,6 +63,7 @@ class Principal:
             tenant_id=self.active_tenant_id,
             actor_id=self.id,
             actor_type=self.type,
+            principal=self,
             correlation_id=correlation_id or str(uuid.uuid4()),
             idempotency_key=idempotency_key,
         )

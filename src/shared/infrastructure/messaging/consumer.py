@@ -144,6 +144,19 @@ class IdempotentConsumer:
             await message.ack()
             return
 
+        header_tenant = message.headers.get("x-tenant-id") if message.headers else None
+        if header_tenant is not None and str(header_tenant) != str(tenant_id_str):
+            err = f"Tenant ID header mismatch: header='{header_tenant}' vs body='{tenant_id_str}'"
+            logger.error("Consumer %s: %s", self._consumer_name, err)
+            await self._route_to_dlq(message, body, reason=err)
+            await message.ack()
+            return
+
+        header_correlation = message.headers.get("x-correlation-id") if message.headers else None
+        header_causation = message.headers.get("x-causation-id") if message.headers else None
+        correlation_id = header_correlation or body.get("correlation_id") or str(uuid.uuid4())
+        causation_id = header_causation or body.get("causation_id") or str(event_id)
+
         handler = self._handlers.get(event_type)
         if handler is None:
             logger.debug(
@@ -154,13 +167,39 @@ class IdempotentConsumer:
             await message.ack()
             return
 
+        from identity.domain.principal import Principal
+
+        actor_id = (
+            message.headers.get("x-actor-id")
+            if message.headers and message.headers.get("x-actor-id")
+            else f"consumer:{self._consumer_name}"
+        )
+        actor_type_str = (
+            message.headers.get("x-actor-type")
+            if message.headers and message.headers.get("x-actor-type")
+            else "SYSTEM"
+        )
+        try:
+            actor_type = ActorType(str(actor_type_str))
+        except ValueError:
+            actor_type = ActorType.SYSTEM
+
+        principal = Principal(
+            id=str(actor_id),
+            type=actor_type,
+            active_tenant_id=TenantId(tenant_uuid),
+            roles=("consumer",),
+            permissions=frozenset({"*"}),
+        )
+
         context = RequestContext(
             tenant_id=TenantId(tenant_uuid),
-            actor_id=f"consumer:{self._consumer_name}",
-            actor_type=ActorType.SYSTEM,
+            actor_id=str(actor_id),
+            actor_type=actor_type,
             correlation_id=correlation_id,
-            causation_id=causation_id or str(event_id),
+            causation_id=causation_id,
             received_at=now,
+            principal=principal,
         )
 
         worker_id = f"{self._consumer_name}-{uuid.uuid4().hex[:8]}"
@@ -199,7 +238,7 @@ class IdempotentConsumer:
             return
 
         # 4. Business execution + atomic inbox completion (Step 2 of safe pattern)
-        async with self._database.new_scope() as scope:
+        async with self._database.new_scope(tenant_id=str(tenant_uuid)) as scope:
             inbox_repo = SqlAlchemyInboxRepository(scope.session)
             try:
                 await handler(body.get("payload", {}), context)

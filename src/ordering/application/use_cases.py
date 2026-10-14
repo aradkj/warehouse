@@ -55,6 +55,8 @@ class CreateOrder(UseCase[CreateOrderCommand, OrderView, OrderingUnitOfWork]):
     """Submit an order and try to secure its stock immediately."""
 
     operation = "ordering.create_order"
+    permission = "orders.create"
+    resource_type = "orders"
     success_status = 201
     #: The specification's flow says a channel submits an order *with* a
     #: tenant-scoped idempotency key; the endpoint enforces it.
@@ -230,6 +232,8 @@ class ConfirmOrder(UseCase[ConfirmOrderCommand, OrderView, OrderingUnitOfWork]):
     """
 
     operation = "ordering.confirm_order"
+    permission = "orders.confirm"
+    resource_type = "orders"
     success_status = 200
 
     async def _execute(
@@ -327,6 +331,8 @@ class CancelOrder(UseCase[CancelOrderCommand, OrderView, OrderingUnitOfWork]):
     """
 
     operation = "ordering.cancel_order"
+    permission = "orders.cancel"
+    resource_type = "orders"
     success_status = 200
 
     async def _execute(

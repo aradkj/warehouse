@@ -682,7 +682,7 @@ def build_use_cases(
 
         authorizer = ApplicationAuthorizationService(
             uow_factory=identity_uow,
-            audit=SqlAlchemyAuditAdapter(scope.session),
+            audit=SqlAlchemyAuditAdapter(scope),
         )
 
     common: dict[str, Any] = {
@@ -711,9 +711,9 @@ def build_use_cases(
         change_sku_price=ChangeSkuPrice(uow_factory=catalog_uow, **common),
         deactivate_sku=DeactivateSku(uow_factory=catalog_uow, **common),
         activate_sku=ActivateSku(uow_factory=catalog_uow, **common),
-        get_product=GetProduct(uow_factory=catalog_uow, clock=clock),
-        get_sku=GetSku(uow_factory=catalog_uow, clock=clock),
-        list_products=ListProducts(uow_factory=catalog_uow, clock=clock),
+        get_product=GetProduct(uow_factory=catalog_uow, clock=clock, authorizer=authorizer),
+        get_sku=GetSku(uow_factory=catalog_uow, clock=clock, authorizer=authorizer),
+        list_products=ListProducts(uow_factory=catalog_uow, clock=clock, authorizer=authorizer),
         register_warehouse=RegisterWarehouse(uow_factory=inventory_uow, **common),
         adjust_inventory=AdjustInventory(uow_factory=inventory_uow, **common),
         reserve_inventory=ReserveInventory(
@@ -725,10 +725,10 @@ def build_use_cases(
         release_reservation=ReleaseReservation(uow_factory=inventory_uow, **common),
         confirm_reservation=ConfirmReservation(uow_factory=inventory_uow, **common),
         expire_reservations=ExpireReservations(uow_factory=inventory_uow, **common),
-        get_availability=GetAvailability(uow_factory=inventory_uow, clock=clock),
-        get_reservation=GetReservation(uow_factory=inventory_uow, clock=clock),
-        get_warehouse=GetWarehouse(uow_factory=inventory_uow, clock=clock),
-        list_warehouses=ListWarehouses(uow_factory=inventory_uow, clock=clock),
+        get_availability=GetAvailability(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
+        get_reservation=GetReservation(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
+        get_warehouse=GetWarehouse(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
+        list_warehouses=ListWarehouses(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
         create_order=CreateOrder(
             uow_factory=ordering_uow,
             unavailable_policy=UnavailableStockPolicy(settings.unavailable_stock_policy),
@@ -736,10 +736,10 @@ def build_use_cases(
         ),
         confirm_order=ConfirmOrder(uow_factory=ordering_uow, **common),
         cancel_order=CancelOrder(uow_factory=ordering_uow, **common),
-        get_order=GetOrder(uow_factory=ordering_uow, clock=clock),
-        list_orders=ListOrders(uow_factory=ordering_uow, clock=clock),
+        get_order=GetOrder(uow_factory=ordering_uow, clock=clock, authorizer=authorizer),
+        list_orders=ListOrders(uow_factory=ordering_uow, clock=clock, authorizer=authorizer),
         register_tenant=RegisterTenant(uow_factory=identity_uow, **common),
-        get_tenant=GetTenant(uow_factory=identity_uow, clock=clock),
+        get_tenant=GetTenant(uow_factory=identity_uow, clock=clock, authorizer=authorizer),
         register_user=RegisterUser(
             uow_factory=identity_uow,
             clock=clock,
@@ -775,13 +775,21 @@ def build_use_cases(
             uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
         ),
         create_invitation=CreateInvitation(
-            uow_factory=identity_uow, clock=clock, token_service=token_service, events=dispatcher
+            uow_factory=identity_uow,
+            clock=clock,
+            token_service=token_service,
+            events=dispatcher,
+            authorizer=authorizer,
         ),
         provision_membership=ProvisionMembership(
-            uow_factory=identity_uow, clock=clock, events=dispatcher
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
         ),
         create_service_account=CreateServiceAccount(
-            uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
+            uow_factory=identity_uow,
+            clock=clock,
+            hasher=hasher,
+            events=dispatcher,
+            authorizer=authorizer,
         ),
         authenticate_service_account=AuthenticateServiceAccount(
             uow_factory=identity_uow,
@@ -791,21 +799,33 @@ def build_use_cases(
             events=dispatcher,
         ),
         rotate_service_account=RotateServiceAccountSecret(
-            uow_factory=identity_uow, clock=clock, hasher=hasher, events=dispatcher
+            uow_factory=identity_uow,
+            clock=clock,
+            hasher=hasher,
+            events=dispatcher,
+            authorizer=authorizer,
         ),
         revoke_service_account=RevokeServiceAccount(
-            uow_factory=identity_uow, clock=clock, events=dispatcher
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
         ),
-        create_role=CreateRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
-        get_role=GetRole(uow_factory=identity_uow, clock=clock),
-        list_roles=ListRoles(uow_factory=identity_uow, clock=clock),
-        assign_role=AssignRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
-        revoke_role=RevokeRole(uow_factory=identity_uow, clock=clock, events=dispatcher),
-        create_policy=CreatePolicy(uow_factory=identity_uow, clock=clock, events=dispatcher),
-        get_policy=GetPolicy(uow_factory=identity_uow, clock=clock),
-        list_policies=ListPolicies(uow_factory=identity_uow, clock=clock),
+        create_role=CreateRole(
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
+        ),
+        get_role=GetRole(uow_factory=identity_uow, clock=clock, authorizer=authorizer),
+        list_roles=ListRoles(uow_factory=identity_uow, clock=clock, authorizer=authorizer),
+        assign_role=AssignRole(
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
+        ),
+        revoke_role=RevokeRole(
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
+        ),
+        create_policy=CreatePolicy(
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
+        ),
+        get_policy=GetPolicy(uow_factory=identity_uow, clock=clock, authorizer=authorizer),
+        list_policies=ListPolicies(uow_factory=identity_uow, clock=clock, authorizer=authorizer),
         update_policy_status=UpdatePolicyStatus(
-            uow_factory=identity_uow, clock=clock, events=dispatcher
+            uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
         ),
     )
 
@@ -864,11 +884,11 @@ async def get_admin_context(
 ) -> RequestContext:
     """Context for platform-wide administrative endpoints.
 
-    Requires an authenticated principal with administrative or service account privileges.
+    Requires an authenticated principal with administrative privileges.
     Untrusted headers such as X-Actor-Type are never used as an authority source.
     """
     is_admin = (
-        principal.type in (ActorType.SYSTEM, ActorType.SERVICE_ACCOUNT)
+        principal.type == ActorType.SYSTEM
         or principal.is_tenant_admin
         or "ADMIN" in principal.roles
         or principal.role == "ADMIN"
@@ -876,10 +896,17 @@ async def get_admin_context(
         or principal.has_permission("access.roles.manage")
     )
     if not is_admin:
-        raise Forbidden("administrative operations require system, service account, or administrator privileges")
+        raise Forbidden("administrative operations require system or administrator privileges")
 
-    if scope is not None and hasattr(scope, "set_bypass_rls"):
-        await scope.set_bypass_rls(True)
+    if scope is not None:
+        if principal.active_tenant_id is None and (
+            principal.type == ActorType.SYSTEM or principal.has_permission("*")
+        ):
+            if hasattr(scope, "set_bypass_rls"):
+                await scope.set_bypass_rls(True)
+        elif principal.active_tenant_id is not None:
+            if hasattr(scope, "set_tenant_context"):
+                await scope.set_tenant_context(principal.active_tenant_id)
 
     correlation_id = (
         request.headers.get("X-Correlation-Id")

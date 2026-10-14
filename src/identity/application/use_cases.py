@@ -110,6 +110,9 @@ class RegisterTenant(UseCase[RegisterTenantCommand, TenantView, IdentityUnitOfWo
 class GetTenant(QueryUseCase[GetTenantQuery, TenantView, IdentityUnitOfWork]):
     """Fetch one tenant."""
 
+    permission = "access.roles.read"
+    resource_type = "tenant"
+
     async def _execute(self, uow: IdentityUnitOfWork, command: GetTenantQuery) -> TenantView:
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
@@ -574,6 +577,8 @@ class CreateServiceAccount(
     """Create a machine/service account scoped to a tenant."""
 
     operation = "identity.create_service_account"
+    permission = "access.roles.manage"
+    resource_type = "service_account"
     success_status = 201
 
     def __init__(
@@ -583,13 +588,21 @@ class CreateServiceAccount(
         clock: Clock,
         hasher: PasswordHasher,
         events: EventDispatcher | None = None,
+        authorizer: Any | None = None,
     ) -> None:
-        super().__init__(uow_factory=uow_factory, clock=clock, events=events)
+        super().__init__(uow_factory=uow_factory, clock=clock, events=events, authorizer=authorizer)
         self._hasher = hasher
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: CreateServiceAccountCommand
     ) -> Executed[ServiceAccountCreatedView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="service_account",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"name": command.name, "scopes": list(command.scopes)},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -625,7 +638,7 @@ class CreateServiceAccount(
                 resource_type="service_account",
                 resource_id=str(sa.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"name": sa.name, "client_id": sa.client_id, "scopes": list(sa.scopes)},
@@ -719,11 +732,20 @@ class RevokeServiceAccount(
     """Disable/revoke a service account."""
 
     operation = "identity.revoke_service_account"
+    permission = "access.roles.manage"
+    resource_type = "service_account"
     success_status = 200
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: RevokeServiceAccountCommand
     ) -> Executed[ServiceAccountView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="service_account",
+            resource_id=str(command.service_account_id),
+            resource_tenant_id=command.tenant_id,
+        )
         sa = await uow.service_accounts.get(command.service_account_id)
         if sa is None or sa.tenant_id != command.tenant_id:
             raise NotFound("service_account", command.service_account_id)
@@ -740,7 +762,7 @@ class RevokeServiceAccount(
                 resource_type="service_account",
                 resource_id=str(sa.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"status": sa.status.value},
@@ -759,6 +781,8 @@ class CreateInvitation(UseCase[CreateInvitationCommand, InvitationView, Identity
     """Issue a signed invitation token for tenant membership onboarding."""
 
     operation = "identity.create_invitation"
+    permission = "access.roles.manage"
+    resource_type = "invitation"
     success_status = 201
 
     def __init__(
@@ -768,13 +792,21 @@ class CreateInvitation(UseCase[CreateInvitationCommand, InvitationView, Identity
         clock: Clock,
         token_service: TokenService,
         events: EventDispatcher | None = None,
+        authorizer: Any | None = None,
     ) -> None:
-        super().__init__(uow_factory=uow_factory, clock=clock, events=events)
+        super().__init__(uow_factory=uow_factory, clock=clock, events=events, authorizer=authorizer)
         self._token_service = token_service
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: CreateInvitationCommand
     ) -> Executed[InvitationView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="invitation",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"role": command.role},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -812,11 +844,30 @@ class ProvisionMembership(
     """Directly provision a membership for an existing user in a tenant."""
 
     operation = "identity.provision_membership"
+    permission = "access.roles.manage"
+    resource_type = "tenant_membership"
     success_status = 201
+
+    def __init__(
+        self,
+        *,
+        uow_factory: Callable[[], IdentityUnitOfWork],
+        clock: Clock,
+        events: EventDispatcher | None = None,
+        authorizer: Any | None = None,
+    ) -> None:
+        super().__init__(uow_factory=uow_factory, clock=clock, events=events, authorizer=authorizer)
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: ProvisionMembershipCommand
     ) -> Executed[TenantMembershipView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="tenant_membership",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"role": command.role},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -860,7 +911,7 @@ class ProvisionMembership(
                 resource_type="membership",
                 resource_id=str(membership.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"user_id": str(membership.user_id), "role": membership.role.value},
@@ -885,6 +936,8 @@ class RotateServiceAccountSecret(
     """Rotate credentials for a service account."""
 
     operation = "identity.rotate_service_account"
+    permission = "access.roles.manage"
+    resource_type = "service_account"
     success_status = 200
 
     def __init__(
@@ -894,13 +947,21 @@ class RotateServiceAccountSecret(
         clock: Clock,
         hasher: PasswordHasher,
         events: EventDispatcher | None = None,
+        authorizer: Any | None = None,
     ) -> None:
-        super().__init__(uow_factory=uow_factory, clock=clock, events=events)
+        super().__init__(uow_factory=uow_factory, clock=clock, events=events, authorizer=authorizer)
         self._hasher = hasher
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: RotateServiceAccountSecretCommand
     ) -> Executed[ServiceAccountCreatedView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="service_account",
+            resource_id=str(command.service_account_id),
+            resource_tenant_id=command.tenant_id,
+        )
         sa = await uow.service_accounts.get(command.service_account_id)
         if sa is None or sa.tenant_id != command.tenant_id:
             raise NotFound("service_account", command.service_account_id)
@@ -920,7 +981,7 @@ class RotateServiceAccountSecret(
                 resource_type="service_account",
                 resource_id=str(sa.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"token_version": sa.version},
@@ -951,11 +1012,20 @@ class CreateRole(UseCase[CreateRoleCommand, RoleView, IdentityUnitOfWork]):
     """Create a custom tenant-scoped role."""
 
     operation = "identity.create_role"
+    permission = "access.roles.manage"
+    resource_type = "role"
     success_status = 201
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: CreateRoleCommand
     ) -> Executed[RoleView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="role",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"name": command.name},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -995,7 +1065,7 @@ class CreateRole(UseCase[CreateRoleCommand, RoleView, IdentityUnitOfWork]):
                 resource_type="role",
                 resource_id=str(role.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"name": role.name, "description": role.description, "permissions": list(role.permissions)},
@@ -1023,6 +1093,9 @@ class CreateRole(UseCase[CreateRoleCommand, RoleView, IdentityUnitOfWork]):
 
 class GetRole(QueryUseCase[GetRoleQuery, RoleView, IdentityUnitOfWork]):
     """Fetch a role by ID."""
+
+    permission = "access.roles.read"
+    resource_type = "role"
 
     async def _execute(self, uow: IdentityUnitOfWork, command: GetRoleQuery) -> RoleView:
         try:
@@ -1057,6 +1130,9 @@ class GetRole(QueryUseCase[GetRoleQuery, RoleView, IdentityUnitOfWork]):
 class ListRoles(QueryUseCase[ListRolesQuery, list[RoleView], IdentityUnitOfWork]):
     """List system and tenant-scoped roles."""
 
+    permission = "access.roles.read"
+    resource_type = "role"
+
     async def _execute(self, uow: IdentityUnitOfWork, command: ListRolesQuery) -> list[RoleView]:
         roles = await uow.roles.list_for_tenant(command.tenant_id, include_system=True)
         return [
@@ -1079,11 +1155,21 @@ class AssignRole(UseCase[AssignRoleCommand, TenantMembershipView, IdentityUnitOf
     """Assign a role to a tenant membership."""
 
     operation = "identity.assign_role"
+    permission = "access.roles.manage"
+    resource_type = "tenant_membership"
     success_status = 200
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: AssignRoleCommand
     ) -> Executed[TenantMembershipView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="tenant_membership",
+            resource_id=str(command.membership_id),
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"role": command.role_name},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -1108,7 +1194,7 @@ class AssignRole(UseCase[AssignRoleCommand, TenantMembershipView, IdentityUnitOf
                 resource_type="membership",
                 resource_id=str(membership.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"role": role.name},
@@ -1132,11 +1218,21 @@ class RevokeRole(UseCase[RevokeRoleCommand, TenantMembershipView, IdentityUnitOf
     """Revoke a role from a tenant membership."""
 
     operation = "identity.revoke_role"
+    permission = "access.roles.manage"
+    resource_type = "tenant_membership"
     success_status = 200
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: RevokeRoleCommand
     ) -> Executed[TenantMembershipView]:
+        await self._authorize(
+            command.context,
+            action="access.roles.manage",
+            resource_type="tenant_membership",
+            resource_id=str(command.membership_id),
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"role": command.role_name},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -1168,7 +1264,7 @@ class RevokeRole(UseCase[RevokeRoleCommand, TenantMembershipView, IdentityUnitOf
                 resource_type="membership",
                 resource_id=str(membership.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"role": command.role_name},
@@ -1192,11 +1288,20 @@ class CreatePolicy(UseCase[CreatePolicyCommand, PolicyView, IdentityUnitOfWork])
     """Create an ABAC policy."""
 
     operation = "identity.create_policy"
+    permission = "access.policies.manage"
+    resource_type = "policy"
     success_status = 201
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: CreatePolicyCommand
     ) -> Executed[PolicyView]:
+        await self._authorize(
+            command.context,
+            action="access.policies.manage",
+            resource_type="policy",
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"name": command.name, "effect": command.effect},
+        )
         tenant = await uow.tenants.get(command.tenant_id)
         if tenant is None:
             raise NotFound("tenant", command.tenant_id)
@@ -1227,7 +1332,7 @@ class CreatePolicy(UseCase[CreatePolicyCommand, PolicyView, IdentityUnitOfWork])
                 resource_type="policy",
                 resource_id=str(policy.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={
@@ -1263,6 +1368,9 @@ class CreatePolicy(UseCase[CreatePolicyCommand, PolicyView, IdentityUnitOfWork])
 
 class GetPolicy(QueryUseCase[GetPolicyQuery, PolicyView, IdentityUnitOfWork]):
     """Fetch an ABAC policy by ID."""
+
+    permission = "access.policies.read"
+    resource_type = "policy"
 
     async def _execute(self, uow: IdentityUnitOfWork, command: GetPolicyQuery) -> PolicyView:
         try:
@@ -1300,6 +1408,9 @@ class GetPolicy(QueryUseCase[GetPolicyQuery, PolicyView, IdentityUnitOfWork]):
 class ListPolicies(QueryUseCase[ListPoliciesQuery, list[PolicyView], IdentityUnitOfWork]):
     """List ABAC policies for a tenant."""
 
+    permission = "access.policies.read"
+    resource_type = "policy"
+
     async def _execute(
         self, uow: IdentityUnitOfWork, command: ListPoliciesQuery
     ) -> list[PolicyView]:
@@ -1329,11 +1440,21 @@ class UpdatePolicyStatus(UseCase[UpdatePolicyStatusCommand, PolicyView, Identity
     """Activate or deactivate an ABAC policy."""
 
     operation = "identity.update_policy_status"
+    permission = "access.policies.manage"
+    resource_type = "policy"
     success_status = 200
 
     async def _execute(
         self, uow: IdentityUnitOfWork, command: UpdatePolicyStatusCommand
     ) -> Executed[PolicyView]:
+        await self._authorize(
+            command.context,
+            action="access.policies.manage",
+            resource_type="policy",
+            resource_id=str(command.policy_id),
+            resource_tenant_id=command.tenant_id,
+            resource_attributes={"status": command.status},
+        )
         try:
             policy_uuid = uuid.UUID(command.policy_id)
         except ValueError as exc:
@@ -1367,7 +1488,7 @@ class UpdatePolicyStatus(UseCase[UpdatePolicyStatusCommand, PolicyView, Identity
                 resource_type="policy",
                 resource_id=str(policy.id),
                 correlation_id=command.context.correlation_id,
-                causation_id=None,
+                causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
                 after={"status": policy.status.value},

@@ -22,6 +22,9 @@ class GetAvailability(
 ):
     """Report stock positions (on hand, reserved, available) per SKU/warehouse."""
 
+    permission = "inventory.read"
+    resource_type = "inventory"
+
     async def _execute(
         self, uow: InventoryUnitOfWork, command: GetAvailabilityQuery
     ) -> Page[AvailabilityView]:
@@ -42,6 +45,9 @@ class GetAvailability(
 class GetReservation(QueryUseCase[GetReservationQuery, ReservationView, InventoryUnitOfWork]):
     """Fetch one reservation with its allocations."""
 
+    permission = "inventory.read"
+    resource_type = "reservation"
+
     async def _execute(
         self, uow: InventoryUnitOfWork, command: GetReservationQuery
     ) -> ReservationView:
@@ -56,6 +62,9 @@ class GetReservation(QueryUseCase[GetReservationQuery, ReservationView, Inventor
 class GetWarehouse(QueryUseCase[GetWarehouseQuery, WarehouseView, InventoryUnitOfWork]):
     """Fetch one warehouse."""
 
+    permission = "inventory.read"
+    resource_type = "warehouse"
+
     async def _execute(self, uow: InventoryUnitOfWork, command: GetWarehouseQuery) -> WarehouseView:
         warehouse = await uow.warehouses.get(
             tenant_id=command.tenant_id, warehouse_id=command.warehouse_id
@@ -67,6 +76,9 @@ class GetWarehouse(QueryUseCase[GetWarehouseQuery, WarehouseView, InventoryUnitO
 
 class ListWarehouses(QueryUseCase[ListWarehousesQuery, Page[WarehouseView], InventoryUnitOfWork]):
     """Keyset-paginated warehouse list."""
+
+    permission = "inventory.read"
+    resource_type = "warehouse"
 
     async def _execute(
         self, uow: InventoryUnitOfWork, command: ListWarehousesQuery

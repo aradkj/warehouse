@@ -63,6 +63,8 @@ class AuthorizationDecision:
     reason_details: str | None = None
     policy_id: PolicyId | None = None
     policy_version: int | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
@@ -74,7 +76,11 @@ class AuthorizationDecision:
         policy_id: PolicyId | None = None,
         policy_version: int | None = None,
         details: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> AuthorizationDecision:
+        corr = correlation_id or (request.environment.get("correlation_id") if request.environment else None)
+        caus = causation_id or (request.environment.get("causation_id") if request.environment else None)
         return cls(
             allowed=True,
             reason=reason,
@@ -86,6 +92,8 @@ class AuthorizationDecision:
             reason_details=details,
             policy_id=policy_id,
             policy_version=policy_version,
+            correlation_id=corr,
+            causation_id=caus,
         )
 
     @classmethod
@@ -97,7 +105,11 @@ class AuthorizationDecision:
         policy_id: PolicyId | None = None,
         policy_version: int | None = None,
         details: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> AuthorizationDecision:
+        corr = correlation_id or (request.environment.get("correlation_id") if request.environment else None)
+        caus = causation_id or (request.environment.get("causation_id") if request.environment else None)
         return cls(
             allowed=False,
             reason=reason,
@@ -109,6 +121,8 @@ class AuthorizationDecision:
             reason_details=details,
             policy_id=policy_id,
             policy_version=policy_version,
+            correlation_id=corr,
+            causation_id=caus,
         )
 
 

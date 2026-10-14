@@ -26,14 +26,24 @@ logger = logging.getLogger(__name__)
 
 async def _run_expire_reservations() -> int:
     """Execute reservation expiration sweep using application layer."""
+    from identity.domain.principal import Principal
+
     settings = get_settings()
     database = Database(settings.database_url)
     try:
-        scope = database.new_scope()
+        scope = database.new_scope(bypass_rls=True)
         use_cases = build_use_cases(
             settings=settings,
             clock=SystemClock(),
             scope=scope,
+        )
+
+        principal = Principal(
+            id="worker:reservation-sweeper",
+            type=ActorType.SYSTEM,
+            active_tenant_id=None,
+            roles=("system",),
+            permissions=frozenset({"*", "inventory.expire"}),
         )
 
         context = RequestContext(
@@ -42,6 +52,7 @@ async def _run_expire_reservations() -> int:
             actor_type=ActorType.SYSTEM,
             correlation_id=str(uuid.uuid4()),
             received_at=datetime.now(UTC),
+            principal=principal,
         )
 
         command = ExpireReservationsCommand(
