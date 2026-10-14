@@ -507,7 +507,7 @@ services:
 
     environment:
       # Application database.
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad_test
 
       # Dedicated PostgreSQL database used exclusively by the test suite.
       # tests/conftest.py reads this variable.
