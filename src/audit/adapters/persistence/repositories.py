@@ -46,11 +46,7 @@ class SqlAlchemyAuditAdapter(AuditPort):
         if redacted_details is not None:
             combined_details.update(redacted_details)
 
-        audit_uuid = (
-            entry.audit_id
-            if isinstance(entry.audit_id, uuid.UUID)
-            else uuid.UUID(str(entry.audit_id))
-        )
+        audit_uuid = uuid.UUID(str(entry.audit_id))
         tenant_uuid = (
             uuid.UUID(str(entry.tenant_id))
             if entry.tenant_id is not None

@@ -20,10 +20,13 @@ identical whether a use case is called from HTTP or from another context.
 
 from __future__ import annotations
 
+import logging
 from types import TracebackType
 from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -100,12 +103,12 @@ class SqlAlchemyTransactionScope:
     """
 
     __slots__ = (
+        "_bypass_rls",
         "_depth",
         "_rollback_only",
         "_session",
         "_session_factory",
         "_tenant_id",
-        "_bypass_rls",
     )
 
     def __init__(
@@ -147,21 +150,25 @@ class SqlAlchemyTransactionScope:
             try:
                 await self._session.execute(text("RESET ROLE"))
             except Exception:
-                pass
+                logger.debug("Failed to RESET ROLE for bypass_rls", exc_info=True)
             await self._session.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         else:
             try:
                 await self._session.execute(text("SET LOCAL ROLE arad_app"))
             except Exception:
-                pass
+                logger.debug("Failed to SET LOCAL ROLE arad_app", exc_info=True)
             if self._tenant_id is not None:
                 await self._session.execute(
                     text("SELECT set_config('app.current_tenant_id', :tid, true)"),
                     {"tid": str(self._tenant_id)},
                 )
             else:
-                await self._session.execute(text("SELECT set_config('app.current_tenant_id', '', true)"))
-                await self._session.execute(text("SELECT set_config('app.bypass_rls', 'off', true)"))
+                await self._session.execute(
+                    text("SELECT set_config('app.current_tenant_id', '', true)")
+                )
+                await self._session.execute(
+                    text("SELECT set_config('app.bypass_rls', 'off', true)")
+                )
 
     async def set_tenant_context(self, tenant_id: object | None) -> None:
         """Establish or update transaction-local tenant context for RLS."""

@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.fakes.application import build_fake_application
 
 from identity.application.commands import (
     AuthenticateServiceAccountCommand,
@@ -22,7 +23,6 @@ from shared.application.context import RequestContext
 from shared.application.errors import AuthenticationFailed, CannotRemoveLastAdmin
 from shared.domain.errors import InvalidValue
 from shared.domain.identifiers import MembershipId, ServiceAccountId, TenantId, UserId
-from tests.fakes.application import build_fake_application
 
 
 def _ctx(tenant_id: TenantId | None = None) -> RequestContext:
@@ -41,7 +41,14 @@ class TestAuth006LastAdminProtection:
         mem_id = MembershipId(uuid.uuid4())
         now = app.clock.now()
 
-        tenant = Tenant(id=tenant_id, name="Tenant A", slug="tenant-a", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        tenant = Tenant(
+            id=tenant_id,
+            name="Tenant A",
+            slug="tenant-a",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.tenants[tenant_id] = tenant
         app.stores.versions[tenant_id] = 1
 
@@ -63,7 +70,9 @@ class TestAuth006LastAdminProtection:
             role_name="ADMIN",
         )
 
-        with pytest.raises(CannotRemoveLastAdmin, match="cannot remove the last active administrator"):
+        with pytest.raises(
+            CannotRemoveLastAdmin, match="cannot remove the last active administrator"
+        ):
             await app.use_cases.revoke_role(cmd)
 
     @pytest.mark.asyncio
@@ -72,7 +81,14 @@ class TestAuth006LastAdminProtection:
         tenant_id = TenantId(uuid.uuid4())
         now = app.clock.now()
 
-        tenant = Tenant(id=tenant_id, name="Tenant A", slug="tenant-a", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        tenant = Tenant(
+            id=tenant_id,
+            name="Tenant A",
+            slug="tenant-a",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.tenants[tenant_id] = tenant
         app.stores.versions[tenant_id] = 1
 
@@ -125,7 +141,14 @@ class TestAuth006LastAdminProtection:
         tenant_id = TenantId(uuid.uuid4())
         now = app.clock.now()
 
-        tenant = Tenant(id=tenant_id, name="Tenant A", slug="tenant-a", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        tenant = Tenant(
+            id=tenant_id,
+            name="Tenant A",
+            slug="tenant-a",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.tenants[tenant_id] = tenant
         app.stores.versions[tenant_id] = 1
 
@@ -171,9 +194,23 @@ class TestAuth006LastAdminProtection:
         t2_id = TenantId(uuid.uuid4())
         now = app.clock.now()
 
-        app.stores.tenants[t1_id] = Tenant(id=t1_id, name="Tenant 1", slug="tenant-1", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        app.stores.tenants[t1_id] = Tenant(
+            id=t1_id,
+            name="Tenant 1",
+            slug="tenant-1",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.versions[t1_id] = 1
-        app.stores.tenants[t2_id] = Tenant(id=t2_id, name="Tenant 2", slug="tenant-2", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        app.stores.tenants[t2_id] = Tenant(
+            id=t2_id,
+            name="Tenant 2",
+            slug="tenant-2",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.versions[t2_id] = 1
 
         mem1_id = MembershipId(uuid.uuid4())
@@ -215,7 +252,10 @@ class TestAuth006LastAdminProtection:
 # AUTH-007: Role Shadowing Prevention
 # ==============================================================================
 class TestAuth007RoleShadowing:
-    @pytest.mark.parametrize("reserved_name", ["ADMIN", "admin", "Admin ", " MEMBER", "SUPPORT_AGENT", "AUDITOR"])
+    @pytest.mark.parametrize(
+        "reserved_name",
+        ["ADMIN", "admin", "Admin ", " MEMBER", "SUPPORT_AGENT", "AUDITOR"],
+    )
     def test_custom_role_cannot_use_reserved_name_domain(self, reserved_name: str) -> None:
         app = build_fake_application()
         with pytest.raises(InvalidValue, match="reserved for built-in system roles"):
@@ -233,7 +273,14 @@ class TestAuth007RoleShadowing:
         app = build_fake_application()
         tenant_id = TenantId(uuid.uuid4())
         now = app.clock.now()
-        app.stores.tenants[tenant_id] = Tenant(id=tenant_id, name="Tenant A", slug="tenant-a", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        app.stores.tenants[tenant_id] = Tenant(
+            id=tenant_id,
+            name="Tenant A",
+            slug="tenant-a",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.versions[tenant_id] = 1
 
         cmd = CreateRoleCommand(
@@ -264,7 +311,10 @@ class TestAuth008ServiceAccountScopes:
         assert "orders.read" in sa.scopes
         assert "catalog.products.read" in sa.scopes
 
-    @pytest.mark.parametrize("bad_scope", ["*", "orders.*", "arbitrary_scope", "admin:all", "orders.unknown"])
+    @pytest.mark.parametrize(
+        "bad_scope",
+        ["*", "orders.*", "arbitrary_scope", "admin:all", "orders.unknown"],
+    )
     def test_invalid_or_wildcard_scopes_rejected(self, bad_scope: str) -> None:
         app = build_fake_application()
         with pytest.raises(InvalidValue):
@@ -300,7 +350,14 @@ class TestAuth009ServiceAccountTokenVersioning:
         app = build_fake_application()
         tenant_id = TenantId(uuid.uuid4())
         now = app.clock.now()
-        tenant = Tenant(id=tenant_id, name="Tenant A", slug="tenant-a", status=TenantStatus.ACTIVE, created_at=now, updated_at=now)
+        tenant = Tenant(
+            id=tenant_id,
+            name="Tenant A",
+            slug="tenant-a",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
         app.stores.tenants[tenant_id] = tenant
         app.stores.versions[tenant_id] = 1
 
@@ -373,7 +430,10 @@ class TestAuth009ServiceAccountTokenVersioning:
 
         from unittest.mock import patch
 
-        with patch("identity.adapters.persistence.unit_of_work.SqlAlchemyIdentityUnitOfWork") as mock_uow_cls:
+        patch_target = (
+            "identity.adapters.persistence.unit_of_work.SqlAlchemyIdentityUnitOfWork"
+        )
+        with patch(patch_target) as mock_uow_cls:
             mock_uow_cls.return_value.__aenter__.return_value = mock_uow
 
             with pytest.raises(AuthenticationFailed, match="invalidated by secret rotation"):
@@ -410,19 +470,23 @@ class TestStage3Remediation:
     async def test_app_level_authorization_denies_unauthorized_direct_call(self) -> None:
         """AUTH-004: Direct invocation of protected use cases fails if not authorized."""
         from unittest.mock import AsyncMock
-        from shared.domain.clock import SystemClock
-        from shared.application.errors import Forbidden
+
         from identity.domain.decision import AuthorizationDecision, DecisionReason
         from identity.domain.principal import Principal
-        from shared.application.context import ActorType
-        from shared.domain.identifiers import SkuId, WarehouseId
         from inventory.application.commands import AdjustInventoryCommand
         from inventory.application.use_cases import AdjustInventory
         from inventory.domain.value_objects import AdjustmentReason
+        from shared.application.context import ActorType
+        from shared.application.errors import Forbidden
+        from shared.domain.clock import SystemClock
+        from shared.domain.identifiers import SkuId, WarehouseId
 
         tenant_id = TenantId(uuid.uuid4())
         mock_uow = AsyncMock()
-        mock_uow_factory = lambda: mock_uow
+
+        def mock_uow_factory() -> AsyncMock:
+            return mock_uow
+
         mock_clock = SystemClock()
 
         # Mock authorizer that denies
@@ -441,7 +505,12 @@ class TestStage3Remediation:
         )
 
         # Context with an unauthorized principal
-        unauthorized_principal = Principal(id="user-1", type=ActorType.USER, roles=(), permissions=frozenset())
+        unauthorized_principal = Principal(
+            id="user-1",
+            type=ActorType.USER,
+            roles=(),
+            permissions=frozenset(),
+        )
         ctx = RequestContext(
             tenant_id=tenant_id,
             actor_id="user-1",
@@ -466,18 +535,22 @@ class TestStage3Remediation:
     async def test_resource_aware_abac_receives_resource_attributes(self) -> None:
         """AUTH-003: Resource attributes are provided to authorizer for evaluation."""
         from unittest.mock import AsyncMock
-        from shared.domain.clock import SystemClock
+
         from identity.domain.decision import AuthorizationDecision, DecisionReason
         from identity.domain.principal import Principal
-        from shared.application.context import ActorType
-        from shared.domain.identifiers import SkuId, WarehouseId
         from inventory.application.commands import AdjustInventoryCommand
         from inventory.application.use_cases import AdjustInventory
         from inventory.domain.value_objects import AdjustmentReason
+        from shared.application.context import ActorType
+        from shared.domain.clock import SystemClock
+        from shared.domain.identifiers import SkuId, WarehouseId
 
         tenant_id = TenantId(uuid.uuid4())
         mock_uow = AsyncMock()
-        mock_uow_factory = lambda: mock_uow
+
+        def mock_uow_factory() -> AsyncMock:
+            return mock_uow
+
         mock_clock = SystemClock()
 
         captured_requests = []
@@ -551,6 +624,7 @@ class TestStage3Remediation:
     async def test_abac_decision_oracle_sanitization(self) -> None:
         """AUTH-011: POST /v1/access/evaluate sanitizes details for non-admin evaluators."""
         from unittest.mock import AsyncMock
+
         from bootstrap.routers.access import evaluate_access
         from bootstrap.schemas.access import DecisionEvaluationRequest
         from identity.domain.decision import AuthorizationDecision, DecisionReason
@@ -576,7 +650,9 @@ class TestStage3Remediation:
             roles=("AUDITOR",),
             permissions=frozenset({"access.policies.read"}),
         )
-        ctx = RequestContext(tenant_id=tenant_id, actor_id="auditor-1", principal=non_admin_principal)
+        ctx = RequestContext(
+            tenant_id=tenant_id, actor_id="auditor-1", principal=non_admin_principal
+        )
         payload = DecisionEvaluationRequest(
             action="inventory.adjust",
             resource_type="inventory",
@@ -601,7 +677,9 @@ class TestStage3Remediation:
             roles=("ADMIN",),
             permissions=frozenset({"*"},),
         )
-        admin_ctx = RequestContext(tenant_id=tenant_id, actor_id="admin-1", principal=admin_principal)
+        admin_ctx = RequestContext(
+            tenant_id=tenant_id, actor_id="admin-1", principal=admin_principal
+        )
 
         admin_res = await evaluate_access(
             payload=payload,
@@ -615,6 +693,7 @@ class TestStage3Remediation:
     async def test_tenant_inspection_requires_authentication_and_tenant_match(self) -> None:
         """AUTH-012: GET /v1/tenants/{tenant_id} requires auth and isolates tenant metadata."""
         from unittest.mock import AsyncMock
+
         from bootstrap.routers.platform import get_tenant
         from identity.application.commands import TenantView
         from identity.domain.principal import Principal
@@ -677,10 +756,10 @@ class TestStage4DurableAudit:
     async def test_identity_mutations_emit_audit_records_and_redact_secrets(self) -> None:
         """Mutations emit audit records and strictly redact credentials/secrets."""
         from tests.fakes.application import build_fake_application
+
         from identity.application.commands import (
             CreatePolicyCommand,
             CreateRoleCommand,
-            CreateServiceAccountCommand,
             RegisterTenantCommand,
             RevokeServiceAccountCommand,
             RotateServiceAccountSecretCommand,
@@ -691,10 +770,17 @@ class TestStage4DurableAudit:
         platform_ctx = RequestContext(actor_id="admin-1", actor_type=ActorType.USER)
 
         # 1. Register tenant
-        reg_cmd = RegisterTenantCommand(context=platform_ctx, slug="audit-test", name="Audit Test Tenant")
+        reg_cmd = RegisterTenantCommand(
+            context=platform_ctx, slug="audit-test", name="Audit Test Tenant"
+        )
         reg_out = await app.use_cases.register_tenant(reg_cmd)
         tenant_id = reg_out.view.id
-        ctx = RequestContext(tenant_id=tenant_id, actor_id="admin-1", actor_type=ActorType.USER, correlation_id="corr-audit-1")
+        ctx = RequestContext(
+            tenant_id=tenant_id,
+            actor_id="admin-1",
+            actor_type=ActorType.USER,
+            correlation_id="corr-audit-1",
+        )
 
         # 2. CreateRole
         role_cmd = CreateRoleCommand(
@@ -774,6 +860,7 @@ class TestStage4DurableAudit:
     async def test_audit_adapter_redacts_sensitive_credentials(self) -> None:
         """SqlAlchemyAuditAdapter strictly redacts secrets, passwords, and tokens."""
         from unittest.mock import AsyncMock
+
         from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
         from audit.domain.entry import AuditEntry
         from shared.domain.clock import SystemClock

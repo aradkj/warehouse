@@ -85,6 +85,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY tests ./tests
 COPY migrations ./migrations
+COPY scripts ./scripts
 COPY alembic.ini ./
 
 

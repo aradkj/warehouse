@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 HandlerFunc = Callable[[dict[str, Any], RequestContext], Awaitable[Any]]
 
 
+def _header_to_str(val: Any) -> str | None:
+    if val is None:
+        return None
+    if isinstance(val, (bytes, bytearray)):
+        return val.decode("utf-8", errors="replace")
+    return str(val)
+
+
 class PermanentError(Exception):
     """Errors that should NOT be retried.
 
@@ -114,8 +122,6 @@ class IdempotentConsumer:
         event_type = body.get("event_type")
         tenant_id_str = body.get("tenant_id")
         schema_version = body.get("schema_version", 1)
-        correlation_id = body.get("correlation_id") or str(uuid.uuid4())
-        causation_id = body.get("causation_id")
 
         if not event_id or not event_type or not tenant_id_str:
             err = (
@@ -144,18 +150,29 @@ class IdempotentConsumer:
             await message.ack()
             return
 
-        header_tenant = message.headers.get("x-tenant-id") if message.headers else None
-        if header_tenant is not None and str(header_tenant) != str(tenant_id_str):
+        raw_header_tenant = message.headers.get("x-tenant-id") if message.headers else None
+        header_tenant = _header_to_str(raw_header_tenant)
+        if header_tenant is not None and header_tenant != str(tenant_id_str):
             err = f"Tenant ID header mismatch: header='{header_tenant}' vs body='{tenant_id_str}'"
             logger.error("Consumer %s: %s", self._consumer_name, err)
             await self._route_to_dlq(message, body, reason=err)
             await message.ack()
             return
 
-        header_correlation = message.headers.get("x-correlation-id") if message.headers else None
-        header_causation = message.headers.get("x-causation-id") if message.headers else None
-        correlation_id = header_correlation or body.get("correlation_id") or str(uuid.uuid4())
-        causation_id = header_causation or body.get("causation_id") or str(event_id)
+        raw_correlation = message.headers.get("x-correlation-id") if message.headers else None
+        raw_causation = message.headers.get("x-causation-id") if message.headers else None
+        correlation_id: str = (
+            _header_to_str(raw_correlation)
+            or str(body.get("correlation_id") or uuid.uuid4())
+        )
+        causation_id: str | None = (
+            _header_to_str(raw_causation)
+            or (
+                str(body["causation_id"])
+                if body.get("causation_id") is not None
+                else str(event_id)
+            )
+        )
 
         handler = self._handlers.get(event_type)
         if handler is None:
@@ -169,16 +186,10 @@ class IdempotentConsumer:
 
         from identity.domain.principal import Principal
 
-        actor_id = (
-            message.headers.get("x-actor-id")
-            if message.headers and message.headers.get("x-actor-id")
-            else f"consumer:{self._consumer_name}"
-        )
-        actor_type_str = (
-            message.headers.get("x-actor-type")
-            if message.headers and message.headers.get("x-actor-type")
-            else "SYSTEM"
-        )
+        raw_actor_id = message.headers.get("x-actor-id") if message.headers else None
+        actor_id: str = _header_to_str(raw_actor_id) or f"consumer:{self._consumer_name}"
+        raw_actor_type = message.headers.get("x-actor-type") if message.headers else None
+        actor_type_str: str = _header_to_str(raw_actor_type) or "SYSTEM"
         try:
             actor_type = ActorType(str(actor_type_str))
         except ValueError:

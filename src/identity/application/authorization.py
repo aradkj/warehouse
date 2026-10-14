@@ -68,7 +68,7 @@ class ApplicationAuthorizationService(AuthorizationPort):
         effective: set[str] = set()
 
         # Check legacy/direct role attribute on principal
-        if principal.role in SYSTEM_ROLES_PERMISSIONS:
+        if principal.role and principal.role in SYSTEM_ROLES_PERMISSIONS:
             effective.update(SYSTEM_ROLES_PERMISSIONS[principal.role])
 
         for role_name in principal.roles:
@@ -114,7 +114,7 @@ class ApplicationAuthorizationService(AuthorizationPort):
                 id=req.principal_id,
                 type=req.principal_type,
                 active_tenant_id=req.tenant_id,
-                role=req.roles[0] if req.roles else None,
+                role=req.roles[0] if req.roles else "MEMBER",
                 roles=req.roles,
                 attributes=req.subject_attributes,
             )

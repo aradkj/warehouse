@@ -94,7 +94,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests", "migrations"]
+src = ["src", "tests", "migrations", "scripts"]
 extend-exclude = ["build", "dist"]
 
 [tool.ruff.lint]

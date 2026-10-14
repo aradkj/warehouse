@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
+from typing import Any
 
 # Ordering talks to the other contexts through their published ports only.
 from catalog.ports.publication import ProductNotPurchasable

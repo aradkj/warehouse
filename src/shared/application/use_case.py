@@ -188,7 +188,7 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             )
 
         subject_attrs: dict[str, Any] = {}
-        if principal and getattr(principal, "attributes", None):
+        if getattr(principal, "attributes", None):
             subject_attrs.update(principal.attributes)
 
         env: dict[str, Any] = {"correlation_id": context.correlation_id}
@@ -198,11 +198,11 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         req = AuthorizationRequest(
             action=action,
             resource_type=resource_type,
-            principal_id=principal.id if principal else (context.actor_id if context.actor_id != "unknown" else None),
-            principal_type=principal.type if principal else context.actor_type,
+            principal_id=principal.id,
+            principal_type=principal.type,
             tenant_id=context.tenant_id,
-            roles=principal.roles if principal else (),
-            permissions=principal.permissions if principal else frozenset(),
+            roles=principal.roles,
+            permissions=principal.permissions,
             subject_attributes=subject_attrs,
             resource_id=resource_id,
             resource_tenant_id=resource_tenant_id or context.tenant_id,
@@ -213,7 +213,10 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         if not decision.allowed:
             raise Forbidden(
                 f"operation '{action}' not authorized on {resource_type}",
-                details={"reason": decision.reason.value, "reason_details": decision.reason_details},
+                details={
+                    "reason": decision.reason.value,
+                    "reason_details": decision.reason_details,
+                },
             )
 
     async def _authorize_replay(
@@ -227,7 +230,7 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             command.context,
             action=action,
             resource_type=res_type,
-            resource_id=record.resource_id,
+            resource_id=str(record.resource_id) if record.resource_id is not None else None,
             resource_tenant_id=tenant_id,
         )
 
@@ -429,7 +432,7 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             )
 
         subject_attrs: dict[str, Any] = {}
-        if principal and getattr(principal, "attributes", None):
+        if getattr(principal, "attributes", None):
             subject_attrs.update(principal.attributes)
 
         env: dict[str, Any] = {"correlation_id": context.correlation_id}
@@ -439,11 +442,11 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         req = AuthorizationRequest(
             action=action,
             resource_type=resource_type,
-            principal_id=principal.id if principal else (context.actor_id if context.actor_id != "unknown" else None),
-            principal_type=principal.type if principal else context.actor_type,
+            principal_id=principal.id,
+            principal_type=principal.type,
             tenant_id=context.tenant_id,
-            roles=principal.roles if principal else (),
-            permissions=principal.permissions if principal else frozenset(),
+            roles=principal.roles,
+            permissions=principal.permissions,
             subject_attributes=subject_attrs,
             resource_id=resource_id,
             resource_tenant_id=resource_tenant_id or context.tenant_id,
@@ -454,13 +457,18 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         if not decision.allowed:
             raise Forbidden(
                 f"operation '{action}' not authorized on {resource_type}",
-                details={"reason": decision.reason.value, "reason_details": decision.reason_details},
+                details={
+                    "reason": decision.reason.value,
+                    "reason_details": decision.reason_details,
+                },
             )
 
     async def __call__(self, command: CommandT) -> ViewT:
         context = getattr(command, "context", None)
         self._validate_tenant_consistency(command, context)
-        tenant_id = getattr(command, "tenant_id", None) or (getattr(context, "tenant_id", None) if context else None)
+        tenant_id = getattr(command, "tenant_id", None) or (
+            getattr(context, "tenant_id", None) if context else None
+        )
 
         if self.permission is not None and self._authorizer is not None and context is not None:
             await self._authorize(
@@ -474,7 +482,12 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             scope = getattr(uow, "_scope", None)
             if scope is not None:
                 from shared.application.context import ActorType
-                if self.bypass_rls or (context is not None and getattr(context, "actor_type", None) == ActorType.SYSTEM):
+
+                is_system = (
+                    context is not None
+                    and getattr(context, "actor_type", None) == ActorType.SYSTEM
+                )
+                if self.bypass_rls or is_system:
                     if hasattr(scope, "set_bypass_rls"):
                         await scope.set_bypass_rls(True)
                 elif tenant_id is not None and hasattr(scope, "set_tenant_context"):

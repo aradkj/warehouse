@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import timedelta
+from typing import Any, ClassVar
 
 from inventory.application.commands import (
     AdjustInventoryCommand,
@@ -228,7 +229,9 @@ class ReserveInventory(
             resource_tenant_id=command.tenant_id,
             resource_attributes={
                 "requirement_count": len(command.requirements),
-                "warehouse_ids": [str(w) for w in command.warehouse_ids] if command.warehouse_ids else [],
+                "warehouse_ids": (
+                    [str(w) for w in command.warehouse_ids] if command.warehouse_ids else []
+                ),
             },
         )
         if command.warehouse_ids:

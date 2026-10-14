@@ -86,7 +86,10 @@ async def get_tenant(
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     tenant_id: Annotated[UUID, Path(description="Identifier returned by provisioning.")],
 ) -> TenantResponse:
-    """Fetch a tenant by id (protected: requires authentication and tenant membership or system role)."""
+    """Fetch a tenant by id.
+
+    Protected: requires authentication and tenant membership or system role.
+    """
     target_tenant_id = TenantId(tenant_id)
     if not (principal.is_system or principal.active_tenant_id == target_tenant_id):
         raise Forbidden("access to tenant metadata requires membership or system role")

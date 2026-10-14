@@ -536,6 +536,7 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
       - ./migrations:/app/migrations
+      - ./scripts:/app/scripts
       - ./pyproject.toml:/app/pyproject.toml
 
     profiles:

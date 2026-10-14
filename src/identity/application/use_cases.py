@@ -12,6 +12,7 @@ import secrets
 import uuid
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any, ClassVar
 
 from audit.ports.audit import AuditEntry
 from identity.application.commands import (
@@ -1068,7 +1069,11 @@ class CreateRole(UseCase[CreateRoleCommand, RoleView, IdentityUnitOfWork]):
                 causation_id=getattr(command.context, "causation_id", None),
                 occurred_at=now,
                 before=None,
-                after={"name": role.name, "description": role.description, "permissions": list(role.permissions)},
+                after={
+                    "name": role.name,
+                    "description": role.description,
+                    "permissions": list(role.permissions),
+                },
             )
         )
 
@@ -1250,7 +1255,9 @@ class RevokeRole(UseCase[RevokeRoleCommand, TenantMembershipView, IdentityUnitOf
                 if m.id != membership.id and m.is_active and m.is_admin
             ]
             if not other_active_admins:
-                raise CannotRemoveLastAdmin("cannot remove the last active administrator of a tenant")
+                raise CannotRemoveLastAdmin(
+                    "cannot remove the last active administrator of a tenant"
+                )
 
         now = self._clock.now()
         membership.revoke_role(command.role_name, now=now)

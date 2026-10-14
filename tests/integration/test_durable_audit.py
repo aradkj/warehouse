@@ -8,14 +8,12 @@ from datetime import UTC, datetime
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine
+from tests.conftest import test_database_url as get_test_database_url
 
 from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
 from audit.adapters.persistence.tables import audit_logs
 from audit.domain.entry import AuditEntry
-from bootstrap.config import Settings
-from shared.domain.identifiers import TenantId
 from shared.infrastructure.db.session import Database
-from tests.conftest import test_database_url as get_test_database_url
 
 
 @pytest.fixture
@@ -37,7 +35,9 @@ async def engine() -> AsyncEngine:
 
 
 @pytest.mark.asyncio
-async def test_audit_persisted_durable_in_postgres(database_handle: Database, engine: AsyncEngine) -> None:
+async def test_audit_persisted_durable_in_postgres(
+    database_handle: Database, engine: AsyncEngine
+) -> None:
     """Proves audit records are written durably to PostgreSQL audit_logs table."""
     audit_id = uuid.uuid4()
     tenant_id = uuid.uuid4()
@@ -51,7 +51,12 @@ async def test_audit_persisted_durable_in_postgres(database_handle: Database, en
         )
         await scope.session.execute(
             stmt,
-            {"id": tenant_id, "slug": f"audit-test-{uuid.uuid4().hex[:6]}", "name": "Audit Tenant", "now": now},
+            {
+                "id": tenant_id,
+                "slug": f"audit-test-{uuid.uuid4().hex[:6]}",
+                "name": "Audit Tenant",
+                "now": now,
+            },
         )
         await scope.commit()
 
@@ -98,7 +103,9 @@ async def test_audit_persisted_durable_in_postgres(database_handle: Database, en
 
 
 @pytest.mark.asyncio
-async def test_audit_transaction_rollback_prevents_false_success(database_handle: Database, engine: AsyncEngine) -> None:
+async def test_audit_transaction_rollback_prevents_false_success(
+    database_handle: Database, engine: AsyncEngine
+) -> None:
     """Proves failed transactions roll back audit logs so no false records exist."""
     audit_id = uuid.uuid4()
     now = datetime.now(UTC)

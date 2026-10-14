@@ -347,7 +347,11 @@ class SqlAlchemyMembershipRepository:
             from identity.domain.role import RESERVED_ROLE_NAMES
             role_ids_query = select(roles.c.id, roles.c.name, roles.c.is_system).where(
                 roles.c.name.in_(role_names),
-                or_(roles.c.tenant_id == membership.tenant_id, roles.c.is_system.is_(True), roles.c.tenant_id.is_(None)),
+                or_(
+                    roles.c.tenant_id == membership.tenant_id,
+                    roles.c.is_system.is_(True),
+                    roles.c.tenant_id.is_(None),
+                ),
             )
             res = await self._session.execute(role_ids_query)
             found_roles = res.all()

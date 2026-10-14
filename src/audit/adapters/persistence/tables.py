@@ -5,7 +5,6 @@ from __future__ import annotations
 from sqlalchemy import (
     Column,
     ForeignKey,
-    Index,
     String,
     Table,
     func,

@@ -11,13 +11,13 @@ Verifies at the database engine level using SqlAlchemyTransactionScope:
 from __future__ import annotations
 
 import uuid
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import pytest
 from sqlalchemy import text
+from tests.conftest import test_database_url as resolve_database_url
 
 from shared.infrastructure.db.session import Database
-from tests.conftest import test_database_url as resolve_database_url
 
 pytestmark = pytest.mark.integration
 
@@ -52,8 +52,10 @@ async def test_tenant_isolation_reads(database: Database) -> None:
         )
         await scope.session.execute(
             text(
-                "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
+                "INSERT INTO products ("
+                "  id, tenant_id, slug, name, description, status, attributes, version, "
+                "  created_at, updated_at"
+                ") VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
             ),
             [
                 {"id": prod_a_id, "tenant_id": tenant_a, "slug": "prod-a", "name": "Product A"},
@@ -99,22 +101,36 @@ async def test_tenant_isolation_mutations(database: Database) -> None:
         )
         await scope.session.execute(
             text(
-                "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
+                "INSERT INTO products ("
+                "  id, tenant_id, slug, name, description, status, attributes, version, "
+                "  created_at, updated_at"
+                ") VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
             ),
-            {"id": prod_b_id, "tenant_id": tenant_b, "slug": "prod-b-mut", "name": "Product B Original"},
+            {
+                "id": prod_b_id,
+                "tenant_id": tenant_b,
+                "slug": "prod-b-mut",
+                "name": "Product B Original",
+            },
         )
         await scope.commit()
 
-    # 1. Tenant A attempts to INSERT a product with Tenant B's tenant_id -> Rejected by RLS WITH CHECK
+    # 1. Tenant A attempts to INSERT a product with Tenant B's tenant_id -> Rejected by RLS
     async with database.new_scope(tenant_id=str(tenant_a)) as scope:
         with pytest.raises(Exception) as exc_info:
             await scope.session.execute(
                 text(
-                    "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                    "VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
+                    "INSERT INTO products ("
+                    "  id, tenant_id, slug, name, description, status, attributes, version, "
+                    "  created_at, updated_at"
+                    ") VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
                 ),
-                {"id": uuid.uuid4(), "tenant_id": tenant_b, "slug": "spoofed-prod", "name": "Spoofed Product"},
+                {
+                    "id": uuid.uuid4(),
+                    "tenant_id": tenant_b,
+                    "slug": "spoofed-prod",
+                    "name": "Spoofed Product",
+                },
             )
         assert "row-level security policy" in str(exc_info.value).lower()
 
@@ -166,16 +182,25 @@ async def test_missing_tenant_context_fails_closed(database: Database) -> None:
         )
         await scope.session.execute(
             text(
-                "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
+                "INSERT INTO products ("
+                "  id, tenant_id, slug, name, description, status, attributes, version, "
+                "  created_at, updated_at"
+                ") VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
             ),
-            {"id": prod_id, "tenant_id": tenant_id, "slug": "prod-closed", "name": "Closed Product"},
+            {
+                "id": prod_id,
+                "tenant_id": tenant_id,
+                "slug": "prod-closed",
+                "name": "Closed Product",
+            },
         )
         await scope.commit()
 
     # Scope without tenant context or bypass -> fails closed
     async with database.new_scope() as scope:
-        res = await scope.session.execute(text("SELECT count(*) FROM products WHERE id = :id"), {"id": prod_id})
+        res = await scope.session.execute(
+            text("SELECT count(*) FROM products WHERE id = :id"), {"id": prod_id}
+        )
         assert res.scalar_one() == 0
 
 
@@ -199,12 +224,24 @@ async def test_system_worker_bypass_rls(database: Database) -> None:
         )
         await scope.session.execute(
             text(
-                "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
+                "INSERT INTO products ("
+                "  id, tenant_id, slug, name, description, status, attributes, version, "
+                "  created_at, updated_at"
+                ") VALUES (:id, :tenant_id, :slug, :name, '', 'DRAFT', '{}', 1, now(), now())"
             ),
             [
-                {"id": prod_a, "tenant_id": tenant_a, "slug": "work-prod-a", "name": "Worker Product A"},
-                {"id": prod_b, "tenant_id": tenant_b, "slug": "work-prod-b", "name": "Worker Product B"},
+                {
+                    "id": prod_a,
+                    "tenant_id": tenant_a,
+                    "slug": "work-prod-a",
+                    "name": "Worker Product A",
+                },
+                {
+                    "id": prod_b,
+                    "tenant_id": tenant_b,
+                    "slug": "work-prod-b",
+                    "name": "Worker Product B",
+                },
             ],
         )
         await scope.commit()
@@ -221,7 +258,7 @@ async def test_system_worker_bypass_rls(database: Database) -> None:
 
 
 async def test_roles_rls_system_and_tenant_roles(database: Database) -> None:
-    """Proves system roles are visible across all tenants, but custom roles are isolated to their tenant."""
+    """Proves system roles are visible across all tenants, but custom roles are isolated."""
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
     custom_role_a = uuid.uuid4()
@@ -243,8 +280,12 @@ async def test_roles_rls_system_and_tenant_roles(database: Database) -> None:
     async with database.new_scope(tenant_id=str(tenant_a)) as scope:
         await scope.session.execute(
             text(
-                "INSERT INTO roles (id, tenant_id, name, description, is_system, version, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, 'BILLING_SPECIALIST', 'Billing specialist', false, 1, now(), now())"
+                "INSERT INTO roles ("
+                "  id, tenant_id, name, description, is_system, version, created_at, updated_at"
+                ") VALUES ("
+                "  :id, :tenant_id, 'BILLING_SPECIALIST', 'Billing specialist', false, 1, "
+                "  now(), now()"
+                ")"
             ),
             {"id": custom_role_a, "tenant_id": tenant_a},
         )

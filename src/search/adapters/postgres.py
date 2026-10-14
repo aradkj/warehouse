@@ -10,7 +10,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from catalog.adapters.persistence.tables import products, skus
 from search.application.models import build_product_document_id

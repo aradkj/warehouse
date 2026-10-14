@@ -293,7 +293,10 @@ class ChangeSkuPrice(UseCase[ChangeSkuPriceCommand, SkuView, CatalogUnitOfWork])
             resource_type="sku",
             resource_id=str(command.sku_id),
             resource_tenant_id=command.tenant_id,
-            resource_attributes={"price_amount": command.unit_price_minor, "currency": command.currency},
+            resource_attributes={
+                "price_amount": command.unit_price_minor,
+                "currency": command.currency,
+            },
         )
         sku = await _require_sku(uow, command.tenant_id, command.sku_id, for_update=True)
         expected_version = sku.version

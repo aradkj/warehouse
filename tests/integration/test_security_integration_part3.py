@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
 from sqlalchemy import text
+from tests.api.test_access_api import setup_tenant_and_users
+from tests.conftest import test_database_url as get_test_database_url
 
 from bootstrap.config import Settings, get_settings
 from bootstrap.dependencies import build_use_cases
@@ -30,32 +32,20 @@ from identity.application.commands import (
     CreateServiceAccountCommand,
     RegisterTenantCommand,
 )
-from identity.domain.decision import AuthorizationDecision
-from identity.domain.permission import has_permission
 from identity.domain.principal import Principal
 from identity.infrastructure.security import TokenService
 from inventory.application.commands import (
-    AdjustInventoryCommand,
     ExpireReservationsCommand,
-    RegisterWarehouseCommand,
 )
 from ordering.application.commands import (
-    CancelOrderCommand,
-    ConfirmOrderCommand,
     CreateOrderCommand,
 )
-from ordering.application.queries import GetOrder, ListOrders
-from search.adapters.elasticsearch import ElasticsearchIndexAdapter
 from search.adapters.postgres import SqlAlchemyCatalogSearchReader
-from search.application.models import PRODUCTS_INDEX_ALIAS
-from search.ports.indexer import SearchDocument
 from shared.application.context import ActorType, RequestContext
-from shared.application.errors import Forbidden, Unauthorized
+from shared.application.errors import ApplicationError, Forbidden, Unauthorized
 from shared.domain.clock import SystemClock
-from shared.domain.identifiers import MembershipId, OrderId, TenantId, WarehouseId
+from shared.domain.identifiers import MembershipId, OrderId, TenantId
 from shared.infrastructure.db.session import Database
-from tests.api.test_access_api import setup_tenant_and_users
-from tests.conftest import test_database_url as get_test_database_url
 
 pytestmark = pytest.mark.integration
 
@@ -144,7 +134,9 @@ class TestApplicationLayerAuthorizationConsistency:
             await db.dispose()
 
     async def test_use_case_unauthorized_fails_closed(self) -> None:
-        """Calling a protected use case with principal missing required permission must fail closed."""
+        """Calling a protected use case with principal missing required permission
+        must fail closed.
+        """
         db = Database(get_test_database_url(), pool_size=2)
         try:
             scope = db.new_scope()
@@ -313,16 +305,23 @@ class TestIdempotencyOrderAndReplayAuthorization:
             async with db.new_scope(bypass_rls=True) as seed_scope:
                 await seed_scope.session.execute(
                     text(
-                        "INSERT INTO tenants (id, slug, name, status, version, created_at, updated_at) "
-                        "VALUES (:id, :slug, 'Idem Tenant', 'ACTIVE', 1, now(), now()) "
+                        "INSERT INTO tenants ("
+                        "  id, slug, name, status, version, created_at, updated_at"
+                        ") VALUES (:id, :slug, 'Idem Tenant', 'ACTIVE', 1, now(), now()) "
                         "ON CONFLICT DO NOTHING"
                     ),
                     {"id": tenant_id, "slug": f"idem-{tenant_id.hex[:6]}"},
                 )
                 await seed_scope.session.execute(
                     text(
-                        "INSERT INTO idempotency_records (id, tenant_id, idempotency_key, operation, request_hash, state, resource_type, resource_id, response_status, created_at, updated_at, expires_at) "
-                        "VALUES (:id, :tid, :key, 'CreateOrder', :hash, 'completed', 'order', :rid, 201, now(), now(), now() + interval '1 day')"
+                        "INSERT INTO idempotency_records ("
+                        "  id, tenant_id, idempotency_key, operation, request_hash, state, "
+                        "  resource_type, resource_id, response_status, created_at, "
+                        "  updated_at, expires_at"
+                        ") VALUES ("
+                        "  :id, :tid, :key, 'CreateOrder', :hash, 'completed', 'order', :rid, "
+                        "  201, now(), now(), now() + interval '1 day'"
+                        ")"
                     ),
                     {
                         "id": uuid.uuid4(),
@@ -353,7 +352,7 @@ class TestIdempotencyOrderAndReplayAuthorization:
             )
 
             # Must fail closed: cannot hijack/read Tenant A's cached response
-            with pytest.raises(Exception):
+            with pytest.raises(ApplicationError):
                 await use_cases.create_order(cmd)
         finally:
             await db.dispose()
@@ -367,8 +366,9 @@ class TestIdempotencyOrderAndReplayAuthorization:
 class TestMessageDrivenAuthorization:
     async def test_consumer_rejects_tampered_tenant_header(self) -> None:
         """If message header x-tenant-id does not match body tenant_id, message is sent to DLQ."""
-        from shared.infrastructure.messaging.consumer import IdempotentConsumer
         from tests.integration.test_rabbitmq_retry import FakeIncomingMessage
+
+        from shared.infrastructure.messaging.consumer import IdempotentConsumer
 
         db = Database(get_test_database_url(), pool_size=2)
         try:
@@ -410,8 +410,9 @@ class TestMessageDrivenAuthorization:
 
     async def test_consumer_propagates_correlation_causation_and_tenant(self) -> None:
         """Legitimate message execution receives correct tenant and lineage metadata."""
-        from shared.infrastructure.messaging.consumer import IdempotentConsumer
         from tests.integration.test_rabbitmq_retry import FakeIncomingMessage
+
+        from shared.infrastructure.messaging.consumer import IdempotentConsumer
 
         db = Database(get_test_database_url(), pool_size=2)
         try:
@@ -453,8 +454,9 @@ class TestMessageDrivenAuthorization:
             async with db.new_scope(bypass_rls=True) as seed_scope:
                 await seed_scope.session.execute(
                     text(
-                        "INSERT INTO tenants (id, slug, name, status, version, created_at, updated_at) "
-                        "VALUES (:id, :slug, 'Lineage Tenant', 'ACTIVE', 1, now(), now()) "
+                        "INSERT INTO tenants ("
+                        "  id, slug, name, status, version, created_at, updated_at"
+                        ") VALUES (:id, :slug, 'Lineage Tenant', 'ACTIVE', 1, now(), now()) "
                         "ON CONFLICT DO NOTHING"
                     ),
                     {"id": uuid.UUID(tenant_id), "slug": f"lin-{tenant_id[:8]}"},
@@ -482,14 +484,18 @@ class TestMessageDrivenAuthorization:
 
 class TestBackgroundWorkerAuthorization:
     async def test_worker_run_expire_reservations_has_system_principal(self) -> None:
-        """The reservation-sweeper worker runs with trusted system principal and inventory.expire permission."""
+        """The reservation-sweeper worker runs with trusted system principal
+        and inventory.expire permission.
+        """
         from bootstrap.workers import _run_expire_reservations
 
         expired_count = await _run_expire_reservations()
         assert isinstance(expired_count, int)
 
     async def test_expire_reservations_denies_ordinary_member(self) -> None:
-        """Direct invocation of ExpireReservations by a normal user without inventory.expire fails."""
+        """Direct invocation of ExpireReservations by a normal user without
+        inventory.expire fails.
+        """
         db = Database(get_test_database_url(), pool_size=2)
         try:
             scope = db.new_scope()
@@ -533,7 +539,7 @@ class TestSearchReindexSecurityIntegration:
         self, client: httpx.AsyncClient
     ) -> None:
         """Tenant Admin cannot trigger reindex for another tenant (must fail with 403 Forbidden)."""
-        tenant_a, admin_token_a, _, _, _, _ = await setup_tenant_and_users(client)
+        _, admin_token_a, *_ = await setup_tenant_and_users(client)
         tenant_b = str(uuid.uuid4())
 
         headers_a = {"Authorization": f"Bearer {admin_token_a}"}
@@ -550,7 +556,9 @@ class TestSearchReindexSecurityIntegration:
     async def test_tenant_admin_cannot_trigger_platform_wide_reindex(
         self, client: httpx.AsyncClient
     ) -> None:
-        """Tenant Admin cannot trigger platform-wide reindex without tenant_id (must fail with 403)."""
+        """Tenant Admin cannot trigger platform-wide reindex without tenant_id
+        (must fail with 403).
+        """
         _, admin_token_a, _, _, _, _ = await setup_tenant_and_users(client)
 
         headers_a = {"Authorization": f"Bearer {admin_token_a}"}
@@ -618,7 +626,9 @@ class TestServiceAccountScopeEnforcement:
     async def test_service_account_denied_administrative_reindex(
         self, client: httpx.AsyncClient
     ) -> None:
-        """Service Account with catalog.products.read cannot invoke administrative search reindex."""
+        """Service Account with catalog.products.read cannot invoke
+        administrative search reindex.
+        """
         db = Database(get_test_database_url(), pool_size=2)
         try:
             scope = db.new_scope(bypass_rls=True)
@@ -635,7 +645,11 @@ class TestServiceAccountScopeEnforcement:
 
             # Provision tenant & SA
             tenant_res = await use_cases.register_tenant(
-                RegisterTenantCommand(context=sys_ctx, slug=f"sa-t-{uuid.uuid4().hex[:6]}", name="SA Tenant")
+                RegisterTenantCommand(
+                    context=sys_ctx,
+                    slug=f"sa-t-{uuid.uuid4().hex[:6]}",
+                    name="SA Tenant",
+                )
             )
             tenant_id = tenant_res.view.id
             sa_res = await use_cases.create_service_account(
@@ -686,7 +700,11 @@ class TestServiceAccountScopeEnforcement:
             )
 
             tenant_res_a = await use_cases.register_tenant(
-                RegisterTenantCommand(context=sys_ctx, slug=f"sa-a-{uuid.uuid4().hex[:6]}", name="SA Tenant A")
+                RegisterTenantCommand(
+                    context=sys_ctx,
+                    slug=f"sa-a-{uuid.uuid4().hex[:6]}",
+                    name="SA Tenant A",
+                )
             )
             tenant_a = tenant_res_a.view.id
             sa_res = await use_cases.create_service_account(
@@ -731,7 +749,10 @@ class TestABACDecisionTraceabilityAndAudit:
         db = Database(get_test_database_url(), pool_size=2)
         try:
             scope = db.new_scope()
-            use_cases = build_use_cases(settings=Settings(auth_required=True), clock=SystemClock(), scope=scope)
+            auth_settings = Settings(auth_required=True)
+            use_cases = build_use_cases(
+                settings=auth_settings, clock=SystemClock(), scope=scope
+            )
             authorizer = use_cases.create_order._authorizer
             assert authorizer is not None
             tenant_id = uuid.uuid4()
@@ -785,13 +806,25 @@ class TestABACDecisionTraceabilityAndAudit:
         try:
             async with db.new_scope(bypass_rls=True) as scope:
                 res = await scope.session.execute(
-                    text("SELECT action, details FROM audit_logs ORDER BY occurred_at DESC LIMIT 50")
+                    text(
+                        "SELECT action, details FROM audit_logs "
+                        "ORDER BY occurred_at DESC LIMIT 50"
+                    )
                 )
                 rows = res.fetchall()
                 for row in rows:
                     details_str = json.dumps(row.details or {})
-                    assert "password" not in details_str.lower() or "******" in details_str or "[redacted]" in details_str.lower()
-                    assert "secret" not in details_str.lower() or "******" in details_str or "[redacted]" in details_str.lower()
+                    d_lower = details_str.lower()
+                    assert (
+                        "password" not in d_lower
+                        or "******" in details_str
+                        or "[redacted]" in d_lower
+                    )
+                    assert (
+                        "secret" not in d_lower
+                        or "******" in details_str
+                        or "[redacted]" in d_lower
+                    )
                     assert "eyJh" not in details_str  # standard JWT header prefix
         finally:
             await db.dispose()
@@ -817,22 +850,45 @@ class TestSqlAlchemyCatalogSearchReaderRLSConsistency:
             async with db.new_scope(bypass_rls=True) as seed_scope:
                 await seed_scope.session.execute(
                     text(
-                        "INSERT INTO tenants (id, slug, name, status, version, created_at, updated_at) "
-                        "VALUES (:id, :slug, :name, 'ACTIVE', 1, now(), now())"
+                        "INSERT INTO tenants ("
+                        "  id, slug, name, status, version, created_at, updated_at"
+                        ") VALUES (:id, :slug, :name, 'ACTIVE', 1, now(), now())"
                     ),
                     [
-                        {"id": uuid.UUID(tenant_a), "slug": f"t-a-{tenant_a[:6]}", "name": "Tenant A"},
-                        {"id": uuid.UUID(tenant_b), "slug": f"t-b-{tenant_b[:6]}", "name": "Tenant B"},
+                        {
+                            "id": uuid.UUID(tenant_a),
+                            "slug": f"t-a-{tenant_a[:6]}",
+                            "name": "Tenant A",
+                        },
+                        {
+                            "id": uuid.UUID(tenant_b),
+                            "slug": f"t-b-{tenant_b[:6]}",
+                            "name": "Tenant B",
+                        },
                     ],
                 )
                 await seed_scope.session.execute(
                     text(
-                        "INSERT INTO products (id, tenant_id, slug, name, description, status, attributes, version, created_at, updated_at) "
-                        "VALUES (:id, :tenant_id, :slug, :name, '', 'ACTIVE', '{}', 1, now(), now())"
+                        "INSERT INTO products ("
+                        "  id, tenant_id, slug, name, description, status, attributes, "
+                        "  version, created_at, updated_at"
+                        ") VALUES ("
+                        "  :id, :tenant_id, :slug, :name, '', 'ACTIVE', '{}', 1, now(), now()"
+                        ")"
                     ),
                     [
-                        {"id": uuid.UUID(prod_a_id), "tenant_id": uuid.UUID(tenant_a), "slug": "prod-a", "name": "Product A"},
-                        {"id": uuid.UUID(prod_b_id), "tenant_id": uuid.UUID(tenant_b), "slug": "prod-b", "name": "Product B"},
+                        {
+                            "id": uuid.UUID(prod_a_id),
+                            "tenant_id": uuid.UUID(tenant_a),
+                            "slug": "prod-a",
+                            "name": "Product A",
+                        },
+                        {
+                            "id": uuid.UUID(prod_b_id),
+                            "tenant_id": uuid.UUID(tenant_b),
+                            "slug": "prod-b",
+                            "name": "Product B",
+                        },
                     ],
                 )
                 await seed_scope.commit()

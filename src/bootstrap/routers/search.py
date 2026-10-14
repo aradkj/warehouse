@@ -133,7 +133,11 @@ async def reindex_products(
 
             raise Forbidden("cannot perform administrative search operations on another tenant")
 
-    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else (_context.tenant_id and str(_context.tenant_id))
+    tenant_str: str | None = (
+        str(payload.tenant_id)
+        if payload.tenant_id is not None
+        else (str(_context.tenant_id) if _context.tenant_id is not None else None)
+    )
     if payload.async_mode:
         from bootstrap.workers import reindex_products_task
 
@@ -185,7 +189,11 @@ async def reconcile_products(
 
             raise Forbidden("cannot perform administrative search operations on another tenant")
 
-    tenant_str = str(payload.tenant_id) if payload.tenant_id is not None else (_context.tenant_id and str(_context.tenant_id))
+    tenant_str: str | None = (
+        str(payload.tenant_id)
+        if payload.tenant_id is not None
+        else (str(_context.tenant_id) if _context.tenant_id is not None else None)
+    )
     if payload.async_mode:
         from bootstrap.workers import reconcile_products_task
 

@@ -188,7 +188,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    all_tables = TENANT_TABLES + ["audit_logs", "roles", "role_permissions", "membership_roles", "service_account_scopes"]
+    all_tables = [
+        *TENANT_TABLES,
+        "audit_logs",
+        "roles",
+        "role_permissions",
+        "membership_roles",
+        "service_account_scopes",
+    ]
     for table in all_tables:
         op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")

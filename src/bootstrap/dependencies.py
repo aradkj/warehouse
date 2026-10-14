@@ -282,7 +282,9 @@ async def get_current_principal(
 
                 token_version = claims.get("token_version")
                 if token_version is None or token_version != sa.version:
-                    raise AuthenticationFailed("service account token has been invalidated by secret rotation")
+                    raise AuthenticationFailed(
+                        "service account token has been invalidated by secret rotation"
+                    )
 
                 tenant = await uow.tenants.get(sa.tenant_id)
                 if tenant is None or tenant.status != TenantStatus.ACTIVE:
@@ -725,10 +727,18 @@ def build_use_cases(
         release_reservation=ReleaseReservation(uow_factory=inventory_uow, **common),
         confirm_reservation=ConfirmReservation(uow_factory=inventory_uow, **common),
         expire_reservations=ExpireReservations(uow_factory=inventory_uow, **common),
-        get_availability=GetAvailability(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
-        get_reservation=GetReservation(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
-        get_warehouse=GetWarehouse(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
-        list_warehouses=ListWarehouses(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
+        get_availability=GetAvailability(
+            uow_factory=inventory_uow, clock=clock, authorizer=authorizer
+        ),
+        get_reservation=GetReservation(
+            uow_factory=inventory_uow, clock=clock, authorizer=authorizer
+        ),
+        get_warehouse=GetWarehouse(
+            uow_factory=inventory_uow, clock=clock, authorizer=authorizer
+        ),
+        list_warehouses=ListWarehouses(
+            uow_factory=inventory_uow, clock=clock, authorizer=authorizer
+        ),
         create_order=CreateOrder(
             uow_factory=ordering_uow,
             unavailable_policy=UnavailableStockPolicy(settings.unavailable_stock_policy),
@@ -899,14 +909,14 @@ async def get_admin_context(
         raise Forbidden("administrative operations require system or administrator privileges")
 
     if scope is not None:
-        if principal.active_tenant_id is None and (
-            principal.type == ActorType.SYSTEM or principal.has_permission("*")
+        if (
+            principal.active_tenant_id is None
+            and (principal.type == ActorType.SYSTEM or principal.has_permission("*"))
+            and hasattr(scope, "set_bypass_rls")
         ):
-            if hasattr(scope, "set_bypass_rls"):
-                await scope.set_bypass_rls(True)
-        elif principal.active_tenant_id is not None:
-            if hasattr(scope, "set_tenant_context"):
-                await scope.set_tenant_context(principal.active_tenant_id)
+            await scope.set_bypass_rls(True)
+        elif principal.active_tenant_id is not None and hasattr(scope, "set_tenant_context"):
+            await scope.set_tenant_context(principal.active_tenant_id)
 
     correlation_id = (
         request.headers.get("X-Correlation-Id")

@@ -14,6 +14,7 @@ import copy
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from catalog.domain.product import Product
 from catalog.domain.sku import Sku

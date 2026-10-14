@@ -79,8 +79,9 @@ class AuthorizationDecision:
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ) -> AuthorizationDecision:
-        corr = correlation_id or (request.environment.get("correlation_id") if request.environment else None)
-        caus = causation_id or (request.environment.get("causation_id") if request.environment else None)
+        env = request.environment or {}
+        corr = correlation_id or env.get("correlation_id")
+        caus = causation_id or env.get("causation_id")
         return cls(
             allowed=True,
             reason=reason,
@@ -108,8 +109,9 @@ class AuthorizationDecision:
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ) -> AuthorizationDecision:
-        corr = correlation_id or (request.environment.get("correlation_id") if request.environment else None)
-        caus = causation_id or (request.environment.get("causation_id") if request.environment else None)
+        env = request.environment or {}
+        corr = correlation_id or env.get("correlation_id")
+        caus = causation_id or env.get("causation_id")
         return cls(
             allowed=False,
             reason=reason,
