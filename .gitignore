@@ -18,3 +18,7 @@ build/
 
 # Local archives
 /phase4.2.zip
+
+# Local environment and test output
+/test-output.txt
+/.sudo_as_admin_successful
