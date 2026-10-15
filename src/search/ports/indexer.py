@@ -29,6 +29,10 @@ class SearchQuery:
     q: str | None = None
     status: str | None = None
     sku: str | None = None
+    customer: str | None = None
+    warehouse: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
     page: int = 1
     page_size: int = 20
     sort_by: str = "created_at"
@@ -44,8 +48,8 @@ class SearchResultItem:
 
     id: str
     tenant_id: str
-    slug: str
-    name: str
+    slug: str = ""
+    name: str = ""
     description: str | None = None
     status: str = "DRAFT"
     attributes: dict[str, Any] = field(default_factory=dict)
@@ -54,6 +58,21 @@ class SearchResultItem:
     updated_at: str = ""
     version: int = 1
     score: float | None = None
+    raw_source: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def order_id(self) -> str:
+        if "order_id" in self.raw_source:
+            return str(self.raw_source["order_id"])
+        if ":" in self.id:
+            return self.id.split(":", 1)[1]
+        return self.id
+
+    @property
+    def customer_reference(self) -> str | None:
+        if "customer_reference" in self.raw_source:
+            return str(self.raw_source["customer_reference"])
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +103,7 @@ class SearchPageResult:
                     "updated_at": item.updated_at,
                     "version": item.version,
                     "score": item.score,
+                    "raw_source": item.raw_source,
                 }
                 for item in self.items
             ],
@@ -111,6 +131,7 @@ class SearchPageResult:
                 updated_at=str(it.get("updated_at", "")),
                 version=int(it.get("version", 1)),
                 score=it.get("score"),
+                raw_source=dict(it.get("raw_source", {})),
             )
             for it in data.get("items", [])
         )

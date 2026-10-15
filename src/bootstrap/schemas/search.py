@@ -184,7 +184,90 @@ class ReconcileResponse(BaseModel):
         )
 
 
+class OrderSearchSkuResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    sku_id: str
+    sku_code: str
+    quantity: int = 1
+    unit_price_minor: int = 0
+
+
+class OrderSearchResultResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    tenant_id: str
+    order_id: str
+    customer_id: str | None = None
+    customer_reference: str | None = None
+    status: str
+    currency: str = "GBP"
+    total_minor: int = 0
+    warehouse_ids: list[str] = Field(default_factory=list)
+    skus: list[OrderSearchSkuResponse] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+    version: int = 1
+    score: float | None = None
+
+    @classmethod
+    def from_item(cls, item: SearchResultItem) -> OrderSearchResultResponse:
+        src = item.raw_source
+        skus_data = src.get("skus") or item.skus
+        sku_models = [
+            OrderSearchSkuResponse(
+                sku_id=str(s.get("sku_id", "")),
+                sku_code=str(s.get("sku_code", "")),
+                quantity=int(s.get("quantity", 1)),
+                unit_price_minor=int(s.get("unit_price_minor", 0)),
+            )
+            for s in skus_data
+        ]
+        return cls(
+            id=item.id,
+            tenant_id=item.tenant_id,
+            order_id=str(src.get("order_id") or item.id),
+            customer_id=src.get("customer_id"),
+            customer_reference=src.get("customer_reference"),
+            status=str(src.get("status") or item.status),
+            currency=str(src.get("currency", "GBP")),
+            total_minor=int(src.get("total_minor", 0)),
+            warehouse_ids=list(src.get("warehouse_ids", [])),
+            skus=sku_models,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            version=item.version,
+            score=item.score,
+        )
+
+
+class OrderSearchPageResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: list[OrderSearchResultResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    next_cursor: str | None = None
+
+    @classmethod
+    def from_page_result(cls, result: SearchPageResult) -> OrderSearchPageResponse:
+        return cls(
+            items=[OrderSearchResultResponse.from_item(it) for it in result.items],
+            total=result.total,
+            page=result.page,
+            page_size=result.page_size,
+            total_pages=result.total_pages,
+            next_cursor=result.next_cursor,
+        )
+
+
 __all__ = [
+    "OrderSearchPageResponse",
+    "OrderSearchResultResponse",
+    "OrderSearchSkuResponse",
     "ProductSearchPageResponse",
     "ProductSearchResultResponse",
     "ProductSearchSkuResponse",

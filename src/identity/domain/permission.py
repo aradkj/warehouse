@@ -36,6 +36,11 @@ class Permission(StrEnum):
     ACCESS_POLICIES_READ = "access.policies.read"
     ACCESS_POLICIES_MANAGE = "access.policies.manage"
 
+    # Fulfillment
+    FULFILLMENTS_READ = "fulfillments.read"
+    FULFILLMENTS_CREATE = "fulfillments.create"
+    FULFILLMENTS_MODIFY = "fulfillments.modify"
+
     # Audit
     AUDIT_EVENTS_READ = "audit.events.read"
 

@@ -45,6 +45,8 @@ ALLOWED_SORT_FIELDS: dict[str, str] = {
     "name": "name.keyword",
     "status": "status",
     "slug": "slug",
+    "total_minor": "total_minor",
+    "occurred_at": "occurred_at",
 }
 
 
@@ -317,12 +319,54 @@ class ElasticsearchIndexAdapter(SearchIndexer):
         if query.status:
             filter_clauses.append({"term": {"status": query.status}})
 
+        if query.customer:
+            filter_clauses.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"customer_id": query.customer}},
+                            {"term": {"customer_reference.keyword": query.customer}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
+
+        if query.warehouse:
+            filter_clauses.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"warehouse_ids": query.warehouse}},
+                            {"term": {"warehouse_id": query.warehouse}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
+
+        if query.date_from or query.date_to:
+            range_clause: dict[str, Any] = {}
+            if query.date_from:
+                range_clause["gte"] = query.date_from
+            if query.date_to:
+                range_clause["lte"] = query.date_to
+            filter_clauses.append({"range": {"created_at": range_clause}})
+
         if query.sku:
             filter_clauses.append(
                 {
                     "nested": {
                         "path": "skus",
-                        "query": {"term": {"skus.sku_code": query.sku}},
+                        "query": {
+                            "bool": {
+                                "should": [
+                                    {"term": {"skus.sku_code": query.sku}},
+                                    {"term": {"skus.sku_id": query.sku}},
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        },
                     }
                 }
             )
@@ -431,6 +475,7 @@ class ElasticsearchIndexAdapter(SearchIndexer):
                     updated_at=str(source.get("updated_at", "")),
                     version=int(source.get("version", 1)),
                     score=float(score) if score is not None else None,
+                    raw_source=dict(source),
                 )
             )
 

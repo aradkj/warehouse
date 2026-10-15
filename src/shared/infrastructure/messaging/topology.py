@@ -49,6 +49,7 @@ ROUTING_KEY_MAP = {
     "SkuPriceChanged": "sku.price_changed",
     "SkuActivated": "sku.activated",
     "SkuDeactivated": "sku.deactivated",
+    "FulfillmentFailed": "fulfillment.failed",
 }
 
 
@@ -124,7 +125,7 @@ async def declare_topology(channel: aio_pika.abc.AbstractChannel) -> None:
             "x-dead-letter-routing-key": QUEUE_SEARCH_DLQ,
         },
     )
-    for key in ("product.#", "sku.#"):
+    for key in ("product.#", "sku.#", "order.#", "fulfillment.#"):
         await queue_search.bind(events_exchange, routing_key=key)
 
     queue_notifications = await channel.declare_queue(

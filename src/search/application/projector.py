@@ -21,9 +21,22 @@ from catalog.ports.events import (
     SkuDeactivated,
     SkuPriceChanged,
 )
+from fulfillment.ports.events import FulfillmentFailed
+from ordering.ports.events import (
+    OrderBackordered,
+    OrderCancelled,
+    OrderConfirmed,
+    OrderPlaced,
+    OrderShipped,
+)
 from search.application.models import (
+    FULFILLMENT_EXCEPTIONS_INDEX_ALIAS,
+    ORDERS_INDEX_ALIAS,
     PRODUCTS_INDEX_ALIAS,
+    FulfillmentExceptionSearchDocument,
+    OrderSearchDocument,
     ProductSearchDocument,
+    build_order_document_id,
     build_product_document_id,
 )
 from search.ports.indexer import SearchIndexer
@@ -45,6 +58,10 @@ class ProductSearchProjector:
         self._indexer = indexer
         self._cache = cache
         self._index_alias = index_alias
+
+    async def handle(self, event: Any) -> None:
+        """Route domain event or serialized event dictionary to specific handler."""
+        await self.handle_event(event)
 
     async def handle_event(self, event: Any) -> None:
         """Route domain event or serialized event dictionary to specific handler."""
@@ -69,6 +86,18 @@ class ProductSearchProjector:
                 await self.on_sku_activated(event)
             case SkuDeactivated():
                 await self.on_sku_deactivated(event)
+            case OrderPlaced():
+                await self.on_order_placed(event)
+            case OrderConfirmed():
+                await self.on_order_confirmed(event)
+            case OrderCancelled():
+                await self.on_order_cancelled(event)
+            case OrderShipped():
+                await self.on_order_shipped(event)
+            case OrderBackordered():
+                await self.on_order_backordered(event)
+            case FulfillmentFailed():
+                await self.on_fulfillment_failed(event)
             case _:
                 logger.debug("Unhandled event type in projector: %s", type(event).__name__)
                 return
@@ -181,6 +210,65 @@ class ProductSearchProjector:
                         default_key_builder.product(tenant_id, str(product_id))
                     )
                 await self._invalidate_cache(default_key_builder.sku(tenant_id, sku_id))
+
+            case "OrderPlaced":
+                order_id = str(payload.get("order_id") or "")
+                order_doc = await self._load_or_create_order_doc(tenant_id, order_id)
+                order_doc.status = "PENDING"
+                order_doc.customer_reference = payload.get("customer_reference")
+                order_doc.total_minor = int(payload.get("total_minor", 0))
+                order_doc.currency = str(payload.get("currency", "GBP"))
+                order_doc.version = int(payload.get("version", order_doc.version + 1))
+                await self._index_order_document(order_doc)
+
+            case "OrderConfirmed":
+                order_id = str(payload.get("order_id") or "")
+                order_doc = await self._load_or_create_order_doc(tenant_id, order_id)
+                order_doc.status = "CONFIRMED"
+                order_doc.total_minor = int(payload.get("total_minor", order_doc.total_minor))
+                order_doc.version = int(payload.get("version", order_doc.version + 1))
+                await self._index_order_document(order_doc)
+
+            case "OrderCancelled":
+                order_id = str(payload.get("order_id") or "")
+                order_doc = await self._load_or_create_order_doc(tenant_id, order_id)
+                order_doc.status = "CANCELLED"
+                order_doc.version = int(payload.get("version", order_doc.version + 1))
+                await self._index_order_document(order_doc)
+
+            case "OrderShipped":
+                order_id = str(payload.get("order_id") or "")
+                order_doc = await self._load_or_create_order_doc(tenant_id, order_id)
+                order_doc.status = "SHIPPED"
+                order_doc.version = int(payload.get("version", order_doc.version + 1))
+                await self._index_order_document(order_doc)
+
+            case "OrderBackordered":
+                order_id = str(payload.get("order_id") or "")
+                order_doc = await self._load_or_create_order_doc(tenant_id, order_id)
+                order_doc.status = "BACKORDERED"
+                order_doc.version = int(payload.get("version", order_doc.version + 1))
+                await self._index_order_document(order_doc)
+
+            case "FulfillmentFailed":
+                f_id = str(payload.get("fulfillment_id") or "")
+                exc_doc = FulfillmentExceptionSearchDocument(
+                    id=f_id,
+                    tenant_id=tenant_id,
+                    fulfillment_id=f_id,
+                    order_id=str(payload.get("order_id") or ""),
+                    warehouse_id=str(payload.get("warehouse_id") or ""),
+                    exception_type=(
+                        "CarrierPermanentFailure"
+                        if payload.get("is_permanent")
+                        else "CarrierTemporaryFailure"
+                    ),
+                    status="FAILED",
+                    reason=str(payload.get("reason") or "Carrier dispatch failure"),
+                    is_permanent=bool(payload.get("is_permanent", False)),
+                    version=int(payload.get("version", 1)),
+                )
+                await self._index_fulfillment_exception_document(exc_doc)
 
             case _:
                 logger.debug("Unhandled event name in projector: %s", event_name)
@@ -364,6 +452,94 @@ class ProductSearchProjector:
                 tenant_id,
                 exc_info=True,
             )
+
+    async def on_order_placed(self, event: OrderPlaced) -> None:
+        """Handle OrderPlaced domain event."""
+        doc = await self._load_or_create_order_doc(str(event.tenant_id), str(event.order_id))
+        doc.status = "PENDING"
+        doc.customer_reference = event.customer_reference
+        doc.total_minor = event.total_minor
+        doc.currency = event.currency
+        doc.version = 1
+        await self._index_order_document(doc)
+
+    async def on_order_confirmed(self, event: OrderConfirmed) -> None:
+        """Handle OrderConfirmed domain event."""
+        doc = await self._load_or_create_order_doc(str(event.tenant_id), str(event.order_id))
+        doc.status = "CONFIRMED"
+        doc.total_minor = event.total_minor
+        doc.currency = event.currency
+        doc.version += 1
+        doc.updated_at = datetime.now(UTC).isoformat()
+        await self._index_order_document(doc)
+
+    async def on_order_cancelled(self, event: OrderCancelled) -> None:
+        """Handle OrderCancelled domain event."""
+        doc = await self._load_or_create_order_doc(str(event.tenant_id), str(event.order_id))
+        doc.status = "CANCELLED"
+        doc.version += 1
+        doc.updated_at = datetime.now(UTC).isoformat()
+        await self._index_order_document(doc)
+
+    async def on_order_shipped(self, event: OrderShipped) -> None:
+        """Handle OrderShipped domain event."""
+        doc = await self._load_or_create_order_doc(str(event.tenant_id), str(event.order_id))
+        doc.status = "SHIPPED"
+        doc.version += 1
+        doc.updated_at = datetime.now(UTC).isoformat()
+        await self._index_order_document(doc)
+
+    async def on_order_backordered(self, event: OrderBackordered) -> None:
+        """Handle OrderBackordered domain event."""
+        doc = await self._load_or_create_order_doc(str(event.tenant_id), str(event.order_id))
+        doc.status = "BACKORDERED"
+        doc.version += 1
+        doc.updated_at = datetime.now(UTC).isoformat()
+        await self._index_order_document(doc)
+
+    async def on_fulfillment_failed(self, event: FulfillmentFailed) -> None:
+        """Handle FulfillmentFailed domain event."""
+        doc = FulfillmentExceptionSearchDocument(
+            id=str(event.fulfillment_id),
+            tenant_id=str(event.tenant_id),
+            fulfillment_id=str(event.fulfillment_id),
+            order_id=str(event.order_id),
+            warehouse_id=str(event.warehouse_id),
+            exception_type=(
+                "CarrierPermanentFailure"
+                if event.is_permanent
+                else "CarrierTemporaryFailure"
+            ),
+            status="FAILED",
+            reason=event.reason,
+            is_permanent=event.is_permanent,
+        )
+        await self._index_fulfillment_exception_document(doc)
+
+    async def _load_or_create_order_doc(self, tenant_id: str, order_id: str) -> OrderSearchDocument:
+        """Fetch existing order search document or return stub."""
+        doc_id = build_order_document_id(tenant_id, order_id)
+        raw = await self._indexer.get_document(index_alias=ORDERS_INDEX_ALIAS, document_id=doc_id)
+        if raw is not None:
+            return OrderSearchDocument.from_dict(raw)
+        return OrderSearchDocument(
+            id=order_id,
+            tenant_id=tenant_id,
+            status="PENDING",
+            version=1,
+        )
+
+    async def _index_order_document(self, doc: OrderSearchDocument) -> None:
+        """Index order search document."""
+        search_doc = doc.to_search_document(alias=ORDERS_INDEX_ALIAS)
+        await self._indexer.index((search_doc,))
+
+    async def _index_fulfillment_exception_document(
+        self, doc: FulfillmentExceptionSearchDocument
+    ) -> None:
+        """Index fulfillment exception search document."""
+        search_doc = doc.to_search_document(alias=FULFILLMENT_EXCEPTIONS_INDEX_ALIAS)
+        await self._indexer.index((search_doc,))
 
 
 __all__ = ["ProductSearchProjector"]

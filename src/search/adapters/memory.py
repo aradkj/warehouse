@@ -126,20 +126,63 @@ class InMemorySearchIndexer(SearchIndexer):
             if query.status and str(body.get("status")) != query.status:
                 continue
 
-            # 3. SKU filter
+            # 3. Customer filter
+            if query.customer:
+                cust_match = (
+                    str(body.get("customer_id") or "") == query.customer
+                    or str(body.get("customer_reference") or "") == query.customer
+                )
+                if not cust_match:
+                    continue
+
+            # 4. Warehouse filter
+            if query.warehouse:
+                wh_ids = [str(w) for w in body.get("warehouse_ids", [])]
+                single_wh = str(body.get("warehouse_id") or "")
+                if query.warehouse not in wh_ids and query.warehouse != single_wh:
+                    continue
+
+            # 5. Date filters
+            created_at_str = str(body.get("created_at") or body.get("occurred_at") or "")
+            if query.date_from and created_at_str < query.date_from:
+                continue
+            if query.date_to and created_at_str > query.date_to:
+                continue
+
+            # 6. SKU filter
             skus_list = list(body.get("skus", []))
             if query.sku:
-                has_sku = any(str(s.get("sku_code")) == query.sku for s in skus_list)
+                has_sku = any(
+                    str(s.get("sku_code")) == query.sku or str(s.get("sku_id")) == query.sku
+                    for s in skus_list
+                )
                 if not has_sku:
                     continue
 
-            # 4. Text search
+            # 7. Text search
             if q_lower:
                 name_match = q_lower in str(body.get("name", "")).lower()
                 desc_match = q_lower in str(body.get("description", "") or "").lower()
                 slug_match = q_lower in str(body.get("slug", "")).lower()
                 sku_match = any(q_lower in str(s.get("sku_code", "")).lower() for s in skus_list)
-                if not (name_match or desc_match or slug_match or sku_match):
+                cust_ref_match = q_lower in str(body.get("customer_reference", "") or "").lower()
+                order_id_match = q_lower in str(body.get("order_id", "") or "").lower()
+                reason_match = q_lower in str(body.get("reason", "") or "").lower()
+                actor_match = q_lower in str(body.get("actor_id", "") or "").lower()
+                action_match = q_lower in str(body.get("action", "") or "").lower()
+                dec_match = q_lower in str(body.get("decision_reason", "") or "").lower()
+                if not (
+                    name_match
+                    or desc_match
+                    or slug_match
+                    or sku_match
+                    or cust_ref_match
+                    or order_id_match
+                    or reason_match
+                    or actor_match
+                    or action_match
+                    or dec_match
+                ):
                     continue
 
             matched_items.append(
@@ -152,10 +195,11 @@ class InMemorySearchIndexer(SearchIndexer):
                     status=str(body.get("status", "DRAFT")),
                     attributes=dict(body.get("attributes", {})),
                     skus=tuple(dict(s) for s in skus_list),
-                    created_at=str(body.get("created_at", "")),
+                    created_at=str(body.get("created_at", "") or body.get("occurred_at", "")),
                     updated_at=str(body.get("updated_at", "")),
                     version=int(body.get("version", ver)),
                     score=1.0 if q_lower else None,
+                    raw_source=dict(body),
                 )
             )
 

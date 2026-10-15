@@ -32,6 +32,12 @@ from catalog.application.use_cases import (
     DeactivateSku,
     ReviseProduct,
 )
+from fulfillment.application.use_cases import (
+    CompensateFulfillment,
+    GetFulfillment,
+    RequestFulfillment,
+    RetryFulfillment,
+)
 from identity.application.authorization import ApplicationAuthorizationService
 from identity.application.use_cases import (
     AssignRole,
@@ -644,6 +650,11 @@ class UseCases:
     get_policy: GetPolicy
     list_policies: ListPolicies
     update_policy_status: UpdatePolicyStatus
+    # fulfillment (Phase 2)
+    request_fulfillment: RequestFulfillment | None = None
+    retry_fulfillment: RetryFulfillment | None = None
+    compensate_fulfillment: CompensateFulfillment | None = None
+    get_fulfillment: GetFulfillment | None = None
 
 
 def build_use_cases(
@@ -677,6 +688,9 @@ def build_use_cases(
         default_reservation_ttl_seconds=settings.reservation_ttl_seconds,
         max_reservation_ttl_seconds=settings.max_reservation_ttl_seconds,
     )
+    from fulfillment.adapters.unit_of_work import SqlAlchemyFulfillmentUnitOfWork
+
+    fulfillment_uow = lambda: SqlAlchemyFulfillmentUnitOfWork(scope)  # noqa: E731
 
     if authorizer is None and settings.auth_required:
         from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
@@ -837,6 +851,12 @@ def build_use_cases(
         update_policy_status=UpdatePolicyStatus(
             uow_factory=identity_uow, clock=clock, events=dispatcher, authorizer=authorizer
         ),
+        request_fulfillment=RequestFulfillment(uow_factory=fulfillment_uow, **common),
+        retry_fulfillment=RetryFulfillment(uow_factory=fulfillment_uow, **common),
+        compensate_fulfillment=CompensateFulfillment(uow_factory=fulfillment_uow, **common),
+        get_fulfillment=GetFulfillment(
+            uow_factory=fulfillment_uow, clock=clock, authorizer=authorizer
+        ),
     )
 
 
@@ -960,6 +980,21 @@ def get_search_service(
     )
 
 
+def get_order_search_service(
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
+    cache: Annotated[CachePort, Depends(get_cache)],
+) -> Any:
+    from search.application.order_service import SearchOrdersService
+
+    return SearchOrdersService(
+        indexer=indexer,
+        cache=cache,
+        cache_ttl_seconds=settings.search_cache_ttl_seconds,
+        max_page_size=settings.search_max_page_size,
+    )
+
+
 def get_reindexing_service(
     settings: Annotated[Settings, Depends(get_application_settings)],
     indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
@@ -988,12 +1023,21 @@ def get_reconciliation_service(
     )
 
 
+def get_audit_port(
+    scope: Annotated[SqlAlchemyTransactionScope, Depends(get_transaction_scope)],
+) -> Any:
+    from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
+
+    return SqlAlchemyAuditAdapter(scope)
+
+
 __all__ = [
     "UseCases",
     "apply_outcome",
     "build_use_cases",
     "get_admin_context",
     "get_application_settings",
+    "get_audit_port",
     "get_authenticated_tenant_context",
     "get_authorization_service",
     "get_cache",
@@ -1002,6 +1046,7 @@ __all__ = [
     "get_current_principal",
     "get_database",
     "get_event_dispatcher",
+    "get_order_search_service",
     "get_password_hasher",
     "get_reconciliation_service",
     "get_reindexing_service",

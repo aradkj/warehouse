@@ -1,6 +1,8 @@
 from bootstrap.routers import (
     access,
+    audit,
     catalog,
+    fulfillment,
     health,
     identity,
     inventory,
@@ -11,7 +13,9 @@ from bootstrap.routers import (
 
 __all__ = [
     "access",
+    "audit",
     "catalog",
+    "fulfillment",
     "health",
     "identity",
     "inventory",

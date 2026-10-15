@@ -26,7 +26,9 @@ from bootstrap.middleware import (
 )
 from bootstrap.routers import (
     access,
+    audit,
     catalog,
+    fulfillment,
     health,
     identity,
     inventory,
@@ -148,6 +150,8 @@ def create_app(
             {"name": "catalog", "description": "Products and SKUs."},
             {"name": "inventory", "description": "Warehouses, stock, reservations."},
             {"name": "ordering", "description": "Order submission and lifecycle."},
+            {"name": "fulfillment", "description": "Warehouse fulfillment and carrier dispatch."},
+            {"name": "audit", "description": "Immutable audit events."},
             {"name": "search", "description": "Search queries, reindexing, and reconciliation."},
             {"name": "health", "description": "Liveness and readiness probes."},
         ],
@@ -170,6 +174,8 @@ def create_app(
     app.include_router(catalog.router, prefix=app_settings.api_prefix)
     app.include_router(inventory.router, prefix=app_settings.api_prefix)
     app.include_router(ordering.router, prefix=app_settings.api_prefix)
+    app.include_router(fulfillment.router, prefix=app_settings.api_prefix)
+    app.include_router(audit.router, prefix=app_settings.api_prefix)
     app.include_router(search.router, prefix=app_settings.api_prefix)
 
     return app

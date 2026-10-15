@@ -124,6 +124,15 @@ async def _run_search_consumer() -> None:
     from search.adapters.elasticsearch import ElasticsearchIndexAdapter
     from search.adapters.messaging import create_search_projection_consumer
     from search.application.models import (
+        AUDIT_INDEX_ALIAS,
+        AUDIT_INDEX_MAPPINGS,
+        AUDIT_INDEX_V1,
+        FULFILLMENT_EXCEPTIONS_INDEX_ALIAS,
+        FULFILLMENT_EXCEPTIONS_INDEX_MAPPINGS,
+        FULFILLMENT_EXCEPTIONS_INDEX_V1,
+        ORDERS_INDEX_ALIAS,
+        ORDERS_INDEX_MAPPINGS,
+        ORDERS_INDEX_V1,
         PRODUCTS_INDEX_ALIAS,
         PRODUCTS_INDEX_MAPPINGS,
         PRODUCTS_INDEX_V1,
@@ -140,11 +149,26 @@ async def _run_search_consumer() -> None:
     indexer = ElasticsearchIndexAdapter.from_settings(settings)
 
     try:
-        # Pre-declare index and alias
+        # Pre-declare indices and aliases
         await indexer.ensure_index(
             index_name=PRODUCTS_INDEX_V1,
             mappings=PRODUCTS_INDEX_MAPPINGS,
             aliases=(PRODUCTS_INDEX_ALIAS,),
+        )
+        await indexer.ensure_index(
+            index_name=ORDERS_INDEX_V1,
+            mappings=ORDERS_INDEX_MAPPINGS,
+            aliases=(ORDERS_INDEX_ALIAS,),
+        )
+        await indexer.ensure_index(
+            index_name=FULFILLMENT_EXCEPTIONS_INDEX_V1,
+            mappings=FULFILLMENT_EXCEPTIONS_INDEX_MAPPINGS,
+            aliases=(FULFILLMENT_EXCEPTIONS_INDEX_ALIAS,),
+        )
+        await indexer.ensure_index(
+            index_name=AUDIT_INDEX_V1,
+            mappings=AUDIT_INDEX_MAPPINGS,
+            aliases=(AUDIT_INDEX_ALIAS,),
         )
 
         consumer, _ = create_search_projection_consumer(

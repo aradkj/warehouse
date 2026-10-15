@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
 from bootstrap.dependencies import (
     UseCases,
     apply_outcome,
+    get_order_search_service,
     get_tenant_context,
     get_use_cases,
     parse_if_match,
@@ -22,6 +23,7 @@ from bootstrap.schemas.ordering import (
     OrderPageResponse,
     OrderResponse,
 )
+from bootstrap.schemas.search import OrderSearchPageResponse
 from identity.domain.principal import Principal
 from ordering.application.commands import (
     CancelOrderCommand,
@@ -32,6 +34,7 @@ from ordering.application.commands import (
     OrderLineRequest,
 )
 from ordering.domain.value_objects import OrderStatus
+from search.application.order_service import SearchOrdersService
 from shared.application.context import RequestContext
 from shared.domain.identifiers import OrderId, SkuId
 
@@ -128,6 +131,84 @@ async def list_orders(
         items=[OrderResponse.from_view(view, redact_financials=redact) for view in page.items],
         next_cursor=page.next_cursor,
     )
+
+
+@router.get(
+    "/orders/search",
+    response_model=OrderSearchPageResponse,
+    summary="Search orders",
+    responses=ERROR_RESPONSES,
+)
+async def search_orders(
+    context: Annotated[RequestContext, Depends(get_tenant_context)],
+    search_service: Annotated[SearchOrdersService, Depends(get_order_search_service)],
+    _principal: Annotated[Principal, Depends(require_permission("orders.read"))],
+    q: Annotated[
+        str | None,
+        Query(description="Free-text query across customer reference, order ID, or SKU."),
+    ] = None,
+    order_status: Annotated[
+        str | None,
+        Query(alias="status", description="Filter by order status."),
+    ] = None,
+    sku: Annotated[
+        str | None,
+        Query(description="Filter by SKU code or identifier."),
+    ] = None,
+    customer: Annotated[
+        str | None,
+        Query(description="Filter by customer identifier or reference."),
+    ] = None,
+    warehouse: Annotated[
+        str | None,
+        Query(description="Filter by warehouse identifier."),
+    ] = None,
+    date_from: Annotated[
+        str | None,
+        Query(description="Filter orders created on or after ISO timestamp."),
+    ] = None,
+    date_to: Annotated[
+        str | None,
+        Query(description="Filter orders created on or before ISO timestamp."),
+    ] = None,
+    page: Annotated[int, Query(ge=1, description="Page number.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100, description="Page size.")] = 20,
+    cursor: Annotated[
+        str | None,
+        Query(description="Opaque search_after pagination cursor."),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Query(ge=1, le=100, description="Page size with cursor pagination."),
+    ] = None,
+    sort_by: Annotated[
+        str,
+        Query(description="Sort field: created_at, updated_at, status, total_minor."),
+    ] = "created_at",
+    sort_order: Annotated[
+        str,
+        Query(description="Sort direction: asc or desc."),
+    ] = "desc",
+) -> OrderSearchPageResponse:
+    """Execute tenant-isolated Elasticsearch-backed order search."""
+    assert context.tenant_id is not None
+    result = await search_service.search(
+        tenant_id=str(context.tenant_id),
+        q=q,
+        status=order_status,
+        sku=sku,
+        customer=customer,
+        warehouse=warehouse,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+        limit=limit,
+        cursor=cursor,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return OrderSearchPageResponse.from_page_result(result)
 
 
 @router.get(

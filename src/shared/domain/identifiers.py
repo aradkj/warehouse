@@ -36,9 +36,13 @@ MembershipId = NewType("MembershipId", uuid.UUID)
 ServiceAccountId = NewType("ServiceAccountId", uuid.UUID)
 RoleId = NewType("RoleId", uuid.UUID)
 PolicyId = NewType("PolicyId", uuid.UUID)
+FulfillmentId = NewType("FulfillmentId", uuid.UUID)
+FulfillmentTaskId = NewType("FulfillmentTaskId", uuid.UUID)
 
 __all__ = [
     "CustomerId",
+    "FulfillmentId",
+    "FulfillmentTaskId",
     "InventoryItemId",
     "InventoryMovementId",
     "MembershipId",

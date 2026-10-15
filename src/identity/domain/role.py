@@ -37,6 +37,9 @@ DEFAULT_MEMBER_PERMISSIONS: frozenset[str] = frozenset(
         Permission.ORDERS_FINANCIALS_READ.value,
         Permission.INVENTORY_READ.value,
         Permission.CATALOG_PRODUCTS_READ.value,
+        Permission.FULFILLMENTS_READ.value,
+        Permission.FULFILLMENTS_CREATE.value,
+        Permission.FULFILLMENTS_MODIFY.value,
     }
 )
 
@@ -45,6 +48,7 @@ DEFAULT_SUPPORT_PERMISSIONS: frozenset[str] = frozenset(
         Permission.ORDERS_READ.value,
         Permission.INVENTORY_READ.value,
         Permission.CATALOG_PRODUCTS_READ.value,
+        Permission.FULFILLMENTS_READ.value,
     }
 )
 
@@ -54,6 +58,7 @@ DEFAULT_AUDITOR_PERMISSIONS: frozenset[str] = frozenset(
         Permission.ORDERS_FINANCIALS_READ.value,
         Permission.INVENTORY_READ.value,
         Permission.CATALOG_PRODUCTS_READ.value,
+        Permission.FULFILLMENTS_READ.value,
         Permission.AUDIT_EVENTS_READ.value,
         Permission.ACCESS_ROLES_READ.value,
         Permission.ACCESS_POLICIES_READ.value,

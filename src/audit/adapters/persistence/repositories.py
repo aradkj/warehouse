@@ -87,13 +87,33 @@ class SqlAlchemyAuditAdapter(AuditPort):
             .order_by(audit_logs.c.occurred_at.desc())
             .limit(limit)
         )
-        result = await self._session.execute(stmt)
+        from shared.infrastructure.db.session import SqlAlchemyTransactionScope
+
+        if isinstance(self._target, SqlAlchemyTransactionScope):
+            if self._target._session is not None:
+                result = await self._target._session.execute(stmt)
+                return [dict(row._mapping) for row in result.fetchall()]
+            async with self._target:
+                result = await self._target.session.execute(stmt)
+                return [dict(row._mapping) for row in result.fetchall()]
+        result = await self._target.execute(stmt)
         return [dict(row._mapping) for row in result.fetchall()]
 
     async def get_by_id(self, audit_id: uuid.UUID) -> dict[str, Any] | None:
         """Fetch a single audit log by primary key."""
         stmt = sa.select(audit_logs).where(audit_logs.c.id == audit_id)
-        result = await self._session.execute(stmt)
+        from shared.infrastructure.db.session import SqlAlchemyTransactionScope
+
+        if isinstance(self._target, SqlAlchemyTransactionScope):
+            if self._target._session is not None:
+                result = await self._target._session.execute(stmt)
+                row = result.fetchone()
+                return dict(row._mapping) if row else None
+            async with self._target:
+                result = await self._target.session.execute(stmt)
+                row = result.fetchone()
+                return dict(row._mapping) if row else None
+        result = await self._target.execute(stmt)
         row = result.fetchone()
         return dict(row._mapping) if row else None
 

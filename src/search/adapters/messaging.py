@@ -28,6 +28,12 @@ CATALOG_EVENT_TYPES: tuple[str, ...] = (
     "SkuPriceChanged",
     "SkuActivated",
     "SkuDeactivated",
+    "OrderPlaced",
+    "OrderConfirmed",
+    "OrderCancelled",
+    "OrderShipped",
+    "OrderBackordered",
+    "FulfillmentFailed",
 )
 
 

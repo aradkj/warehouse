@@ -1,163 +1,87 @@
-# System overview
+# System Overview
 
-Arad is a **Distributed Order and Inventory Orchestration Platform**. Phase 1 is the
-foundation: a **modular monolith** built as a hexagonal application, with PostgreSQL
-as the system of record and the concurrency guarantees for inventory already in
-place. Later phases (fulfilment, search, asynchronous messaging, caching, ABAC) add
-contexts and infrastructure without changing the dependency rule this phase
-establishes.
+The Warehouse platform is a **Distributed Order and Inventory Orchestration Platform** built as a **modular monolith with independent asynchronous workers**.
 
-The specification is `Arad-project.md`; this document explains how the Phase 1 code
-is organised, how a request flows, and where each guarantee comes from.
+It coordinates multi-warehouse inventory, order lifecycle state, carrier fulfillment, near-real-time search projections, and attribute-based access control (ABAC) across multiple tenants, with PostgreSQL serving as the single authoritative system of record.
 
-## What Phase 1 does
+---
 
-* Multi-tenant catalog (products, SKUs), inventory (warehouses, stock, movements) and
-  ordering (orders, lines, reservations) over HTTP.
-* Inventory that **cannot oversell**, proven under real concurrent transactions.
-* An order lifecycle with explicit transitions and no backwards moves.
-* Tenancy enforced in every repository and in the database schema.
-* Idempotent mutation endpoints for safely retried requests.
-* A schema created by Alembic migrations that are tested from empty on every run.
+## 1. Architectural Scope & Current Status
 
-## What Phase 1 deliberately does not do
+The platform encompasses **Phase 1 through Phase 4** of the specification:
 
-No RabbitMQ, no Celery, no Elasticsearch, no Redis, no ABAC engine, no advanced
-authentication, no distributed tracing, no Prometheus, no Kubernetes, no
-PostgreSQL RLS. Those are Phase 2+ and are listed in the specification; the code
-carries placeholders (`fulfillment`, `search`, `audit`) that mark where they land
-without pretending to implement them. `python -m bootstrap.workers` prints what
-Phase 2 will run there and exits 0.
+- **Phase 1 (Domain Foundation):** Bounded contexts (`Catalog`, `Inventory`, `Ordering`, `Identity`, `Fulfillment`, `Search`, `Audit`), pure domain models, explicit hexagonal architecture, PostgreSQL transaction-per-use-case Unit of Work, row-level locking, and idempotency guarantees.
+- **Phase 2 (Reliable Asynchronous Processing):** Transactional outbox with `SKIP LOCKED` relay, durable RabbitMQ exchanges, dead-letter and retry routing, idempotent inbox consumers, and Celery asynchronous workers.
+- **Phase 3 (Search & Caching):** Redis cache-aside with tenant-prefixed keys and event invalidation; Elasticsearch disposable search projections for Products, Orders, Fulfillment Exceptions, and Audit logs; zero-downtime aliases and reconciliation.
+- **Phase 4 (Security & Tenancy):** Identity authentication (Argon2id, JWT), dual RBAC + dynamic ABAC policy evaluation, warehouse-scoped operator permissions, durable audit logging, and PostgreSQL Row-Level Security (RLS) defense-in-depth.
+- **Phase 5 (Production Hardening):** Production Kubernetes manifests, Prometheus/Grafana infrastructure deployment, and production load/chaos testing are **explicitly deferred to Phase 5**.
 
-## Runtime shape
+---
+
+## 2. Runtime Topology
 
 ```text
-        HTTP client
-             │  X-Tenant-Id / X-Actor-Id / X-Correlation-Id / Idempotency-Key / If-Match
-             ▼
-   ┌───────────────────────────────────────────────────────────────┐
-   │ bootstrap (FastAPI)                                           │
-   │  middleware: CorrelationId → RequestSizeLimit → AccessLog     │
-   │  routers/catalog · inventory · ordering · platform · health   │
-   │  errors.py  → one stable error envelope, no stack traces      │
-   │  dependencies.py → request context, transaction scope, use cases│
-   └───────────────┬───────────────────────────────────────────────┘
-                   │  application service (use case)
-                   ▼
-   ┌───────────────────────────────────────────────────────────────┐
-   │ <context>/application   command → load aggregate → decide →   │
-   │                         save → commit, on ONE transaction     │
-   ├───────────────────────────────────────────────────────────────┤
-   │ <context>/domain        aggregates, invariants, transitions,  │
-   │                         domain events — no framework imports  │
-   ├───────────────────────────────────────────────────────────────┤
-   │ <context>/ports         repository / UoW / publication        │
-   │                         interfaces (Protocols)                │
-   ├───────────────────────────────────────────────────────────────┤
-   │ <context>/adapters      SQLAlchemy repositories, mappers,     │
-   │                         in-process cross-context adapters     │
-   └───────────────┬───────────────────────────────────────────────┘
-                   ▼
-             PostgreSQL 17 (system of record)
+                                HTTP / REST (FastAPI)
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                ▼                                             ▼
+        ┌───────────────┐                             ┌───────────────┐
+        │  Web Clients  │                             │ Sales Channels│
+        └───────┬───────┘                             └───────┬───────┘
+                │                                             │
+                ▼                                             ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │  API Gateway / Application Monolith (FastAPI)                   │
+    │  - Correlation ID & Context Middleware                         │
+    │  - JWT Authentication & Tenant Scoping                          │
+    │  - RBAC & ABAC Dynamic Policy Evaluation                        │
+    │  - Hexagonal Application Layer & Use Cases                      │
+    └───────────────┬─────────────────────────────┬───────────────────┘
+                    │ Writes / Reads               │ Cache Aside
+                    ▼                             ▼
+    ┌───────────────────────────────┐     ┌───────────────┐
+    │ PostgreSQL (System of Record) │     │ Redis Cache   │
+    │ - Aggregates & Invariants     │     │ - Pre-warmed  │
+    │ - Optimistic Concurrency      │     │ - Tenant keys │
+    │ - Row-Level Security (RLS)    │     │ - TTL & Evict │
+    │ - Transactional Outbox        │     └───────────────┘
+    └───────────────┬───────────────┘
+                    │ Polls with SKIP LOCKED
+                    ▼
+    ┌───────────────────────────────┐
+    │ Outbox Relay Worker           │
+    └───────────────┬───────────────┘
+                    │ Publishes integration events
+                    ▼
+    ┌───────────────────────────────┐
+    │ RabbitMQ Topic Exchange       │
+    │ (arad.events + Retry + DLX)   │
+    └───────────────┬───────────────┘
+                    │ Consumes events
+                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ Background Workers & Consumers (Celery & Asyncio)               │
+    │ - Inbox Idempotent Deduplication                                │
+    │ - Elasticsearch Projector (Products, Orders, Exceptions, Audit) │
+    │ - Reservation Expiration Scheduler                              │
+    │ - Fulfillment Carrier Dispatch & Compensation                   │
+    └────────────────┬────────────────────────────────────────────────┘
+                     │ Updates projections
+                     ▼
+    ┌───────────────────────────────┐
+    │ Elasticsearch 8.x             │
+    │ - products alias              │
+    │ - orders alias                │
+    │ - fulfillment_exceptions alias│
+    │ - audit alias                 │
+    └───────────────────────────────┘
 ```
 
-A request is handled by exactly one transaction owned by the application layer:
+---
 
-1. **Middleware** assigns/echoes `X-Correlation-Id`, rejects bodies over
-   `ARAD_MAX_REQUEST_BYTES` and logs one structured line per request.
-2. **`get_request_context`** builds the `RequestContext` from the headers
-   (`X-Tenant-Id`, `X-Actor-Id`, `X-Actor-Type`, correlation id). A request without a
-   tenant never reaches a use case.
-3. **The router** validates a Pydantic schema, builds a command, and calls a use case
-   obtained from `bootstrap.dependencies.UseCases`.
-4. **The use case** (`shared.application.use_case.UseCase`) opens the context's unit
-   of work, claims the idempotency key if the request carries one, loads aggregates
-   through ports, asks *them* to decide, saves, collects domain events, commits.
-5. **The adapter** turns aggregate state into rows; PostgreSQL enforces uniqueness,
-   foreign keys and the CHECK constraints that mirror the domain invariants.
-6. **`bootstrap/errors.py`** maps a domain or application exception to a stable HTTP
-   status and error code; anything unexpected becomes a 500 with a correlation id and
-   no internal detail.
+## 3. Core Architectural Principles
 
-## Dependency rule
-
-`domain` depends on nothing but `shared.domain`. `application` depends on its own
-domain and ports. `ports` depend on domain types. `adapters` and `bootstrap` depend
-on everything. Nothing points the other way.
-
-`tests/unit/test_architecture.py` parses the source with `ast` and fails if any
-module under `*/domain` or `*/ports` imports FastAPI, SQLAlchemy, asyncpg, Alembic,
-Redis, Celery, RabbitMQ or an HTTP client; if application modules import SQLAlchemy;
-if routers contain SQL; or if a context imports another context's internals instead
-of its published port. The rule is executable, not aspirational.
-
-## Where each Phase 1 guarantee comes from
-
-| Guarantee | Mechanism |
-| --- | --- |
-| Inventory never goes negative | `InventoryItem` refuses the allocation; every write goes through `SELECT … FOR UPDATE` on the stock rows in a deterministic order; `ck_inventory_items_available_non_negative` is the database backstop (ADR-0007) |
-| No duplicate order from one idempotency key | `(tenant_id, idempotency_key)` claimed with `INSERT … ON CONFLICT DO NOTHING` inside the same transaction as the order; replays re-read the stored order (ADR-0006) |
-| An order cannot skip or reverse a state | Transition table in `ordering.domain.order`; illegal moves raise `InvalidOrderTransition` → 409 (ADR-0004) |
-| A confirmed order really has stock | `ConfirmOrder` asks inventory to hold or release per line and only confirms when every line is covered (ADR-0004) |
-| Tenants cannot see each other | Tenant-scoped repositories, `tenant_id NOT NULL` + `RESTRICT` foreign keys, and repository-level cross-tenant checks (ADR-0010) |
-| A retry after a crash cannot double-reserve | The claim and the business write share a transaction; a rollback leaves no claim, so the next attempt starts clean (ADR-0006) |
-| The schema is reproducible | One Alembic revision, tested from an empty database with `compare_metadata` drift detection (ADR-0005) |
-
-## Layout
-
-```text
-src/
-  shared/       domain primitives, application kernel (use case, UoW, idempotency),
-                infrastructure (async engine, tables, registry)
-  identity/     tenants
-  catalog/      products, SKUs
-  inventory/    warehouses, stock, movements, reservations
-  ordering/     orders, order lines
-  fulfillment/  placeholder (Phase 2)
-  search/       placeholder (Phase 3)
-  audit/        placeholder (Phase 2)
-  bootstrap/    FastAPI app, routers, schemas, config, errors, middleware, CLI
-migrations/     Alembic revisions
-tests/          unit · application · repository · api · integration · concurrency
-docs/           this document set, ADRs, operational notes
-```
-
-## Cross-context communication (Phase 1 style)
-
-Two contexts that need each other in Phase 1 — ordering needs catalog prices and
-inventory holds — talk through **published ports**, never through each other's
-tables or aggregates:
-
-* `catalog.ports.publication.CatalogQuery` returns `PurchasableSku` for a set of
-  SKUs (implemented by `SqlAlchemyCatalogQuery`, which reads catalog's own tables).
-* `inventory.ports.publication.InventoryOperations` reserves, releases and confirms
-  holds (implemented by `InProcessInventoryOperations`, which delegates to
-  inventory's use cases **on the caller's transaction scope**, so the order and its
-  reservation commit together).
-
-Both are in-process calls today and both are shaped like a remote contract ready for
-the day one of the contexts becomes a service: replacing the adapter is the only
-change (ADR-0008, ADR-0009).
-
-## Running it
-
-```bash
-docker compose up --build          # API on :8000, PostgreSQL on :5432
-curl localhost:8000/healthz
-curl localhost:8000/readyz
-open localhost:8000/docs           # OpenAPI
-```
-
-Without Docker: install PostgreSQL 17, set `ARAD_DATABASE_URL`, then
-`alembic upgrade head && python -m bootstrap.cli serve`. See the repository
-`README.md` for the full setup and the test commands.
-
-## Failure behaviour
-
-* `/healthz` never touches PostgreSQL: it reports liveness only.
-* `/readyz` pings the database and returns 503 with
-  `{"checks": {"database": "unreachable"}}` when it cannot. It is deliberately terse
-  — no connection strings, no driver messages.
-* Every 5xx carries a correlation id that matches the log line, and never a
-  traceback.
-* Concurrency conflicts surface as 409 `concurrency_conflict`, never as a 500.
+1. **PostgreSQL as Single Source of Truth:** All domain state transitions are committed to PostgreSQL. Redis and Elasticsearch are strictly disposable read projections.
+2. **Hexagonal Dependency Rule:** Inbound adapters (FastAPI, RabbitMQ consumers, Celery tasks) and outbound adapters (PostgreSQL, Redis, Elasticsearch) depend strictly on ports and application interfaces. The domain layer has zero infrastructure dependencies.
+3. **Fail-Closed Security:** Authorization defaults to `DENY` unless explicitly granted by a matching RBAC permission and ABAC policy.
+4. **Tenant Isolation at Every Layer:** Enforced at HTTP routing, application context, Redis key formatting, Elasticsearch search queries, and database RLS.
