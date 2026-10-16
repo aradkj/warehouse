@@ -39,7 +39,9 @@ def upgrade() -> None:
     import os
 
     app_role = os.environ.get("ARAD_APP_DB_USER", "arad_app")
-    app_password = os.environ.get("ARAD_APP_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "arad")
+    app_password = os.environ.get("ARAD_APP_DB_PASSWORD") or os.environ.get(
+        "POSTGRES_PASSWORD", "arad"
+    )
     escaped_password = app_password.replace("'", "''")
 
     op.execute(f"""
