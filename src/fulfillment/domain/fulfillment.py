@@ -24,15 +24,11 @@ from shared.domain.identifiers import (
 )
 
 _ALLOWED_TRANSITIONS: dict[FulfillmentStatus, frozenset[FulfillmentStatus]] = {
-    FulfillmentStatus.PENDING: frozenset(
-        {FulfillmentStatus.ALLOCATED, FulfillmentStatus.FAILED}
-    ),
+    FulfillmentStatus.PENDING: frozenset({FulfillmentStatus.ALLOCATED, FulfillmentStatus.FAILED}),
     FulfillmentStatus.ALLOCATED: frozenset(
         {FulfillmentStatus.IN_PROGRESS, FulfillmentStatus.FAILED}
     ),
-    FulfillmentStatus.IN_PROGRESS: frozenset(
-        {FulfillmentStatus.SHIPPED, FulfillmentStatus.FAILED}
-    ),
+    FulfillmentStatus.IN_PROGRESS: frozenset({FulfillmentStatus.SHIPPED, FulfillmentStatus.FAILED}),
     FulfillmentStatus.FAILED: frozenset(
         {FulfillmentStatus.IN_PROGRESS, FulfillmentStatus.COMPENSATED}
     ),

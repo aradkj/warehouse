@@ -87,9 +87,7 @@ class Database:
         from sqlalchemy import text
 
         async with self._engine.connect() as connection:
-            res = await connection.execute(
-                text("SELECT version_num FROM alembic_version LIMIT 1")
-            )
+            res = await connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
             row = res.first()
             if row is not None and row[0]:
                 return str(row[0])
@@ -176,6 +174,7 @@ class SqlAlchemyTransactionScope:
         if self._session is None:
             return
         from sqlalchemy import text
+
         bind = self._session.bind
         dialect_name = bind.dialect.name if bind is not None else "postgresql"
         if dialect_name != "postgresql":

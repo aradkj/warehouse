@@ -358,4 +358,3 @@ class TestTenantRLSIsolation:
         res = await uc(DummyQuery(context=ctx))
         assert res == "ok"
         assert applied_tenant_id == tenant_id
-

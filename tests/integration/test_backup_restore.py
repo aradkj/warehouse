@@ -48,6 +48,7 @@ def test_backup_and_restore_cycle_maintains_integrity_and_invariants() -> None:
 
         # 2. Execute restore into isolated disposable database
         from scripts.restore_postgres import parse_database_url
+
         params = parse_database_url(source_url)
         restore_db_name = f"test_restore_{uuid.uuid4().hex[:8]}"
         target_url = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{restore_db_name}"

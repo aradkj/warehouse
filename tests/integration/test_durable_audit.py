@@ -82,9 +82,7 @@ async def test_audit_persisted_durable_in_postgres(
 
     # 3. Read directly via independent connection
     async with engine.connect() as conn:
-        result = await conn.execute(
-            sa.select(audit_logs).where(audit_logs.c.id == audit_id)
-        )
+        result = await conn.execute(sa.select(audit_logs).where(audit_logs.c.id == audit_id))
         row = result.fetchone()
         assert row is not None
         assert row.tenant_id == tenant_id
@@ -129,8 +127,6 @@ async def test_audit_transaction_rollback_prevents_false_success(
 
     # Verify no row in PostgreSQL
     async with engine.connect() as conn:
-        result = await conn.execute(
-            sa.select(audit_logs).where(audit_logs.c.id == audit_id)
-        )
+        result = await conn.execute(sa.select(audit_logs).where(audit_logs.c.id == audit_id))
         row = result.fetchone()
         assert row is None

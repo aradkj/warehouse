@@ -345,6 +345,7 @@ class SqlAlchemyMembershipRepository:
         if membership.roles:
             role_names = [r.strip().upper() for r in membership.roles]
             from identity.domain.role import RESERVED_ROLE_NAMES
+
             role_ids_query = select(roles.c.id, roles.c.name, roles.c.is_system).where(
                 roles.c.name.in_(role_names),
                 or_(

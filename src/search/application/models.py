@@ -277,9 +277,7 @@ class FulfillmentExceptionSearchDocument:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     version: int = 1
 
-    def to_search_document(
-        self, alias: str = FULFILLMENT_EXCEPTIONS_INDEX_ALIAS
-    ) -> SearchDocument:
+    def to_search_document(self, alias: str = FULFILLMENT_EXCEPTIONS_INDEX_ALIAS) -> SearchDocument:
         body: dict[str, object] = {
             "id": self.id,
             "tenant_id": self.tenant_id,

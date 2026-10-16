@@ -30,7 +30,6 @@ class SqlAlchemyAuditAdapter(AuditPort):
             return self._target()
         return self._target
 
-
     async def record(self, entry: AuditEntry) -> None:
         """Insert an audit record into the audit_logs table."""
         # Redact any credential or secret details before persistence
@@ -47,11 +46,7 @@ class SqlAlchemyAuditAdapter(AuditPort):
             combined_details.update(redacted_details)
 
         audit_uuid = uuid.UUID(str(entry.audit_id))
-        tenant_uuid = (
-            uuid.UUID(str(entry.tenant_id))
-            if entry.tenant_id is not None
-            else None
-        )
+        tenant_uuid = uuid.UUID(str(entry.tenant_id)) if entry.tenant_id is not None else None
 
         stmt = sa.insert(audit_logs).values(
             id=audit_uuid,

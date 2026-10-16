@@ -1253,9 +1253,7 @@ class RevokeRole(UseCase[RevokeRoleCommand, TenantMembershipView, IdentityUnitOf
         if clean_role == "ADMIN" and membership.is_admin and membership.is_active:
             all_memberships = await uow.memberships.list_for_tenant(command.tenant_id)
             other_active_admins = [
-                m
-                for m in all_memberships
-                if m.id != membership.id and m.is_active and m.is_admin
+                m for m in all_memberships if m.id != membership.id and m.is_active and m.is_admin
             ]
             if not other_active_admins:
                 raise CannotRemoveLastAdmin(

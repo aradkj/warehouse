@@ -86,6 +86,7 @@ class BenchmarkRunner:
         started_at = time.perf_counter()
 
         async with httpx.AsyncClient(timeout=30.0) as client:
+
             async def worker() -> None:
                 nonlocal successes, failures
                 async with semaphore:

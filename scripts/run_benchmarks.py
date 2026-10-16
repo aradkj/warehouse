@@ -148,7 +148,11 @@ async def execute_benchmarks(
             headers=headers,
         )
         # Ensure search indices and index test product for search benchmark
-        if app is not None and hasattr(app.state, "search_indexer") and hasattr(app.state.search_indexer, "ensure_index"):
+        if (
+            app is not None
+            and hasattr(app.state, "search_indexer")
+            and hasattr(app.state.search_indexer, "ensure_index")
+        ):
             from search.application.models import (
                 ORDERS_INDEX_ALIAS,
                 ORDERS_INDEX_MAPPINGS,
@@ -158,6 +162,7 @@ async def execute_benchmarks(
                 PRODUCTS_INDEX_V1,
             )
             from search.ports.indexer import SearchDocument
+
             await app.state.search_indexer.ensure_index(
                 index_name=PRODUCTS_INDEX_V1,
                 mappings=PRODUCTS_INDEX_MAPPINGS,
@@ -183,7 +188,15 @@ async def execute_benchmarks(
                             "description": "Benchmark Product Item",
                             "status": "ACTIVE",
                             "attributes": {},
-                            "skus": [{"id": sku_id, "code": sku_code, "name": "Benchmark SKU", "unit_price_minor": 1999, "currency": "GBP"}],
+                            "skus": [
+                                {
+                                    "id": sku_id,
+                                    "code": sku_code,
+                                    "name": "Benchmark SKU",
+                                    "unit_price_minor": 1999,
+                                    "currency": "GBP",
+                                }
+                            ],
                             "created_at": "2026-10-15T12:00:00Z",
                             "updated_at": "2026-10-15T12:00:00Z",
                             "version": 1,
@@ -196,7 +209,10 @@ async def execute_benchmarks(
         # ----------------------------------------------------------------------
         # Warm-up Phase (Establish DB pool, Redis connection, ES warmup)
         # ----------------------------------------------------------------------
-        print(f"\nPriming connection pools and caches (concurrent warm-up with {concurrency} workers)...")
+        print(
+            f"\nPriming connection pools and caches (concurrent warm-up with {concurrency} workers)..."
+        )
+
         async def _warmup_worker() -> None:
             for _ in range(5):
                 await client.get(f"/v1/products/{product_id}", headers=headers)
@@ -276,7 +292,10 @@ async def execute_benchmarks(
             latency_p95_ms=round(latencies_s2[int(len(latencies_s2) * 0.95)], 2),
             latency_p99_ms=round(latencies_s2[int(len(latencies_s2) * 0.99)], 2),
             target_p95_ms=TARGET_READ_P95_MS,
-            target_met=(latencies_s2[int(len(latencies_s2) * 0.95)] < TARGET_READ_P95_MS and failures_s2 == 0),
+            target_met=(
+                latencies_s2[int(len(latencies_s2) * 0.95)] < TARGET_READ_P95_MS
+                and failures_s2 == 0
+            ),
         )
         results.append(res_s2)
 
@@ -319,7 +338,10 @@ async def execute_benchmarks(
             latency_p95_ms=round(latencies_s3[int(len(latencies_s3) * 0.95)], 2),
             latency_p99_ms=round(latencies_s3[int(len(latencies_s3) * 0.99)], 2),
             target_p95_ms=TARGET_COMMAND_P95_MS,
-            target_met=(latencies_s3[int(len(latencies_s3) * 0.95)] < TARGET_COMMAND_P95_MS and failures_s3 == 0),
+            target_met=(
+                latencies_s3[int(len(latencies_s3) * 0.95)] < TARGET_COMMAND_P95_MS
+                and failures_s3 == 0
+            ),
         )
         results.append(res_s3)
 
@@ -370,7 +392,10 @@ async def execute_benchmarks(
             latency_p95_ms=round(latencies_s4[int(len(latencies_s4) * 0.95)], 2),
             latency_p99_ms=round(latencies_s4[int(len(latencies_s4) * 0.99)], 2),
             target_p95_ms=TARGET_READ_P95_MS,
-            target_met=(latencies_s4[int(len(latencies_s4) * 0.95)] < TARGET_READ_P95_MS and failures_s4 == 0),
+            target_met=(
+                latencies_s4[int(len(latencies_s4) * 0.95)] < TARGET_READ_P95_MS
+                and failures_s4 == 0
+            ),
         )
         results.append(res_s4)
 
@@ -406,7 +431,10 @@ async def execute_benchmarks(
             latency_p95_ms=round(latencies_s5[int(len(latencies_s5) * 0.95)], 2),
             latency_p99_ms=round(latencies_s5[int(len(latencies_s5) * 0.99)], 2),
             target_p95_ms=TARGET_READ_P95_MS,
-            target_met=(latencies_s5[int(len(latencies_s5) * 0.95)] < TARGET_READ_P95_MS and failures_s5 == 0),
+            target_met=(
+                latencies_s5[int(len(latencies_s5) * 0.95)] < TARGET_READ_P95_MS
+                and failures_s5 == 0
+            ),
         )
         results.append(res_s5)
 
@@ -422,7 +450,7 @@ async def execute_benchmarks(
             nonlocal failures_s6
             async with sem:
                 t0 = time.perf_counter()
-                is_write = (random.random() < 0.30)
+                is_write = random.random() < 0.30
                 if is_write:
                     key = f"mixed-order-{idx}-{uuid.uuid4().hex[:6]}"
                     o_headers = dict(headers)
@@ -456,13 +484,18 @@ async def execute_benchmarks(
             latency_p95_ms=round(latencies_s6[int(len(latencies_s6) * 0.95)], 2),
             latency_p99_ms=round(latencies_s6[int(len(latencies_s6) * 0.99)], 2),
             target_p95_ms=TARGET_COMMAND_P95_MS,
-            target_met=(latencies_s6[int(len(latencies_s6) * 0.95)] < TARGET_COMMAND_P95_MS and failures_s6 == 0),
+            target_met=(
+                latencies_s6[int(len(latencies_s6) * 0.95)] < TARGET_COMMAND_P95_MS
+                and failures_s6 == 0
+            ),
         )
         results.append(res_s6)
 
     # Print Summary Table
     print("\n" + "=" * 115)
-    print(f"{'Scenario':<42} | {'Reqs':<6} | {'Throughput':<10} | {'P50 (ms)':<9} | {'P95 (ms)':<9} | {'Target':<9} | {'Status'}")
+    print(
+        f"{'Scenario':<42} | {'Reqs':<6} | {'Throughput':<10} | {'P50 (ms)':<9} | {'P95 (ms)':<9} | {'Target':<9} | {'Status'}"
+    )
     print("-" * 115)
     for r in results:
         status_str = "MET [PASS]" if r.target_met else "MISSED [FAIL]"
@@ -476,8 +509,14 @@ async def execute_benchmarks(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Arad Platform Performance Benchmarking Tool")
-    parser.add_argument("--profile", choices=["smoke", "baseline", "stress", "spike"], default="baseline")
-    parser.add_argument("--url", default=None, help="Base HTTP URL (if testing running server, e.g. http://localhost:8000)")
+    parser.add_argument(
+        "--profile", choices=["smoke", "baseline", "stress", "spike"], default="baseline"
+    )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="Base HTTP URL (if testing running server, e.g. http://localhost:8000)",
+    )
     parser.add_argument("--db-url", default=None, help="PostgreSQL database URL")
 
     args = parser.parse_args()

@@ -130,12 +130,10 @@ def invalidate_tenant_membership_cache(
     keys_to_remove = [
         k
         for k in _tenant_membership_cache
-        if (uid_str is None or k[0] == uid_str)
-        and (tenant_id is None or k[1] == tenant_id)
+        if (uid_str is None or k[0] == uid_str) and (tenant_id is None or k[1] == tenant_id)
     ]
     for k in keys_to_remove:
         _tenant_membership_cache.pop(k, None)
-
 
 
 def get_application_settings(request: Request) -> Settings:
@@ -363,9 +361,7 @@ async def get_current_principal(
                 if tenant is None or tenant.status != TenantStatus.ACTIVE:
                     raise TenantSuspended("tenant is suspended or does not exist")
 
-                membership = await uow.memberships.get_by_user_and_tenant(
-                    user.id, active_tenant_id
-                )
+                membership = await uow.memberships.get_by_user_and_tenant(user.id, active_tenant_id)
                 if membership is None:
                     raise Forbidden("user is not a member of the active tenant")
                 if membership.status != MembershipStatus.ACTIVE:
@@ -524,6 +520,7 @@ async def get_authenticated_tenant_context(
         permissions=frozenset({"*"}),
     )
     import dataclasses
+
     return dataclasses.replace(legacy_context, principal=legacy_principal)
 
 
@@ -793,9 +790,7 @@ def build_use_cases(
         get_reservation=GetReservation(
             uow_factory=inventory_uow, clock=clock, authorizer=authorizer
         ),
-        get_warehouse=GetWarehouse(
-            uow_factory=inventory_uow, clock=clock, authorizer=authorizer
-        ),
+        get_warehouse=GetWarehouse(uow_factory=inventory_uow, clock=clock, authorizer=authorizer),
         list_warehouses=ListWarehouses(
             uow_factory=inventory_uow, clock=clock, authorizer=authorizer
         ),

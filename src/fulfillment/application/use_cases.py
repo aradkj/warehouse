@@ -79,9 +79,7 @@ class RequestFulfillment(
         raise NotFound("fulfillment", record.resource_id or command.order_id)
 
 
-class RetryFulfillment(
-    UseCase[RetryFulfillmentCommand, FulfillmentView, FulfillmentUnitOfWork]
-):
+class RetryFulfillment(UseCase[RetryFulfillmentCommand, FulfillmentView, FulfillmentUnitOfWork]):
     """Retry a failed fulfillment."""
 
     operation = "fulfillment.retry_fulfillment"
@@ -184,9 +182,7 @@ class CompensateFulfillment(
         return FulfillmentView.from_aggregate(item)
 
 
-class GetFulfillment(
-    QueryUseCase[GetFulfillmentQuery, FulfillmentView, FulfillmentUnitOfWork]
-):
+class GetFulfillment(QueryUseCase[GetFulfillmentQuery, FulfillmentView, FulfillmentUnitOfWork]):
     """Fetch fulfillment by ID."""
 
     permission = "fulfillments.read"

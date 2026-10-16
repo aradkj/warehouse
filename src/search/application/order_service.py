@@ -184,9 +184,9 @@ class SearchOrdersService:
                     ),
                     "t": tenant_id,
                 }
-                encoded = base64.urlsafe_b64encode(
-                    json.dumps(cursor_dict).encode("utf-8")
-                ).decode("ascii")
+                encoded = base64.urlsafe_b64encode(json.dumps(cursor_dict).encode("utf-8")).decode(
+                    "ascii"
+                )
                 opaque_next_cursor = encoded
             except Exception as exc:
                 logger.warning("Failed to encode next_cursor: %s", exc)

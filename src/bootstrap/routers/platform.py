@@ -93,9 +93,7 @@ async def get_tenant(
     target_tenant_id = TenantId(tenant_id)
     if not (principal.is_system or principal.active_tenant_id == target_tenant_id):
         raise Forbidden("access to tenant metadata requires membership or system role")
-    view = await use_cases.get_tenant(
-        GetTenantQuery(context=context, tenant_id=target_tenant_id)
-    )
+    view = await use_cases.get_tenant(GetTenantQuery(context=context, tenant_id=target_tenant_id))
     return TenantResponse.from_view(view)
 
 

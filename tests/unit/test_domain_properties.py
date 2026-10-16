@@ -118,21 +118,13 @@ class TestInventoryDomainProperties:
                     )
 
             # Core Domain Invariants:
-            assert (
-                item.on_hand.value >= 0
-            ), f"on_hand became negative: {item.on_hand.value}"
-            assert (
-                item.reserved.value >= 0
-            ), f"reserved became negative: {item.reserved.value}"
-            assert (
-                item.available.value >= 0
-            ), f"available became negative: {item.available.value}"
-            assert (
-                item.available.value == item.on_hand.value - item.reserved.value
-            ), "available != on_hand - reserved"
-            assert (
-                item.reserved.value <= item.on_hand.value
-            ), "reserved exceeded on_hand"
+            assert item.on_hand.value >= 0, f"on_hand became negative: {item.on_hand.value}"
+            assert item.reserved.value >= 0, f"reserved became negative: {item.reserved.value}"
+            assert item.available.value >= 0, f"available became negative: {item.available.value}"
+            assert item.available.value == item.on_hand.value - item.reserved.value, (
+                "available != on_hand - reserved"
+            )
+            assert item.reserved.value <= item.on_hand.value, "reserved exceeded on_hand"
 
     @given(
         initial_stock=st.integers(min_value=1, max_value=500),

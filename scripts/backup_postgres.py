@@ -51,7 +51,10 @@ def check_free_space(dest_dir: Path, min_mb: int = 100) -> bool:
     stat = shutil.disk_usage(dest_dir)
     free_mb = stat.free // (1024 * 1024)
     if free_mb < min_mb:
-        print(f"ERROR: Insufficient disk space in {dest_dir}. Free: {free_mb}MB, Required: {min_mb}MB", file=sys.stderr)
+        print(
+            f"ERROR: Insufficient disk space in {dest_dir}. Free: {free_mb}MB, Required: {min_mb}MB",
+            file=sys.stderr,
+        )
         return False
     return True
 
@@ -102,12 +105,16 @@ def run_backup(
         # Exec pg_dump via docker container if local pg_dump is unavailable
         c_name = container_name or "arad-postgres-1"
         cmd = [
-            "docker", "exec",
-            "-e", f"PGPASSWORD={params['password']}",
+            "docker",
+            "exec",
+            "-e",
+            f"PGPASSWORD={params['password']}",
             c_name,
             "pg_dump",
-            "-U", str(params["user"]),
-            "-d", str(params["database"]),
+            "-U",
+            str(params["user"]),
+            "-d",
+            str(params["database"]),
             "--clean",
             "--if-exists",
             "--no-owner",
@@ -117,22 +124,29 @@ def run_backup(
             proc = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=False)
             if proc.returncode != 0:
                 tmp_path.unlink(missing_ok=True)
-                raise RuntimeError(f"docker exec pg_dump failed (code {proc.returncode}): {proc.stderr.decode('utf-8', errors='replace')}")
+                raise RuntimeError(
+                    f"docker exec pg_dump failed (code {proc.returncode}): {proc.stderr.decode('utf-8', errors='replace')}"
+                )
     else:
         # Check if local pg_dump exists, fallback to docker exec
         pg_dump_bin = shutil.which("pg_dump")
         if pg_dump_bin:
             cmd = [
                 pg_dump_bin,
-                "-h", str(params["host"]),
-                "-p", str(params["port"]),
-                "-U", str(params["user"]),
-                "-d", str(params["database"]),
+                "-h",
+                str(params["host"]),
+                "-p",
+                str(params["port"]),
+                "-U",
+                str(params["user"]),
+                "-d",
+                str(params["database"]),
                 "--clean",
                 "--if-exists",
                 "--no-owner",
                 "--no-privileges",
-                "-f", str(tmp_path),
+                "-f",
+                str(tmp_path),
             ]
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
             if proc.returncode != 0:
@@ -142,12 +156,16 @@ def run_backup(
             # Fallback to docker container
             c_name = "arad-postgres-1"
             cmd = [
-                "docker", "exec",
-                "-e", f"PGPASSWORD={params['password']}",
+                "docker",
+                "exec",
+                "-e",
+                f"PGPASSWORD={params['password']}",
                 c_name,
                 "pg_dump",
-                "-U", str(params["user"]),
-                "-d", str(params["database"]),
+                "-U",
+                str(params["user"]),
+                "-d",
+                str(params["database"]),
                 "--clean",
                 "--if-exists",
                 "--no-owner",
@@ -157,7 +175,9 @@ def run_backup(
                 proc = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=False)
                 if proc.returncode != 0:
                     tmp_path.unlink(missing_ok=True)
-                    raise RuntimeError(f"docker exec pg_dump fallback failed: {proc.stderr.decode('utf-8', errors='replace')}")
+                    raise RuntimeError(
+                        f"docker exec pg_dump fallback failed: {proc.stderr.decode('utf-8', errors='replace')}"
+                    )
 
     # Atomic move
     tmp_path.rename(final_path)
@@ -193,7 +213,9 @@ def main() -> int:
     )
     parser.add_argument("--prefix", default="arad_backup", help="Filename prefix")
     parser.add_argument("--max-keep", type=int, default=7, help="Number of backups to retain")
-    parser.add_argument("--container", default=None, help="Docker container name if using container exec")
+    parser.add_argument(
+        "--container", default=None, help="Docker container name if using container exec"
+    )
 
     args = parser.parse_args()
     try:

@@ -430,9 +430,7 @@ class TestAuth009ServiceAccountTokenVersioning:
 
         from unittest.mock import patch
 
-        patch_target = (
-            "identity.adapters.persistence.unit_of_work.SqlAlchemyIdentityUnitOfWork"
-        )
+        patch_target = "identity.adapters.persistence.unit_of_work.SqlAlchemyIdentityUnitOfWork"
         with patch(patch_target) as mock_uow_cls:
             mock_uow_cls.return_value.__aenter__.return_value = mock_uow
 
@@ -554,6 +552,7 @@ class TestStage3Remediation:
         mock_clock = SystemClock()
 
         captured_requests = []
+
         async def fake_authorize(req):
             captured_requests.append(req)
             return AuthorizationDecision(
@@ -675,7 +674,9 @@ class TestStage3Remediation:
             type=ActorType.USER,
             role="ADMIN",
             roles=("ADMIN",),
-            permissions=frozenset({"*"},),
+            permissions=frozenset(
+                {"*"},
+            ),
         )
         admin_ctx = RequestContext(
             tenant_id=tenant_id, actor_id="admin-1", principal=admin_principal
@@ -897,5 +898,3 @@ class TestStage4DurableAudit:
         assert details["after"]["public_info"] == "safe_data"
         assert details["access_token"] == "[REDACTED]"
         assert details["client_secret"] == "[REDACTED]"
-
-

@@ -15,9 +15,7 @@ class InvalidFulfillmentTransition(FulfillmentError):
     """Raised when an illegal lifecycle transition is attempted."""
 
     def __init__(self, current_status: str, target_status: str) -> None:
-        super().__init__(
-            f"cannot transition fulfillment from {current_status} to {target_status}"
-        )
+        super().__init__(f"cannot transition fulfillment from {current_status} to {target_status}")
         self.current_status = current_status
         self.target_status = target_status
 

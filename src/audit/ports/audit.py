@@ -15,9 +15,7 @@ class AuditPort(Protocol):
         """Record an audit trail entry."""
         ...
 
-    async def list_for_tenant(
-        self, tenant_id: Any, *, limit: int = 50
-    ) -> list[dict[str, Any]]:
+    async def list_for_tenant(self, tenant_id: Any, *, limit: int = 50) -> list[dict[str, Any]]:
         """Fetch audit records for a tenant ordered by occurrence descending."""
         ...
 

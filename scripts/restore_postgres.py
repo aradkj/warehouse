@@ -33,13 +33,19 @@ def verify_checksum(sql_path: Path) -> bool:
     """Verify SHA-256 checksum file matches backup artifact."""
     sha_file = sql_path.with_suffix(sql_path.suffix + ".sha256")
     if not sha_file.exists():
-        print(f"WARNING: Checksum file '{sha_file}' not found. Skipping integrity verification.", file=sys.stderr)
+        print(
+            f"WARNING: Checksum file '{sha_file}' not found. Skipping integrity verification.",
+            file=sys.stderr,
+        )
         return True
 
     expected_sha = sha_file.read_text(encoding="utf-8").strip().split()[0]
     actual_sha = compute_sha256(sql_path)
     if expected_sha.lower() != actual_sha.lower():
-        print(f"ERROR: Checksum mismatch for {sql_path}! Expected: {expected_sha}, Actual: {actual_sha}", file=sys.stderr)
+        print(
+            f"ERROR: Checksum mismatch for {sql_path}! Expected: {expected_sha}, Actual: {actual_sha}",
+            file=sys.stderr,
+        )
         return False
     print(f"Checksum verified: {actual_sha}")
     return True
@@ -73,7 +79,9 @@ def run_restore(
     db_name = str(params["database"])
 
     # Safety guard: Never restore blindly into production without explicit override
-    if db_name.lower() in ("arad", "production") and not os.environ.get("CONFIRM_PRODUCTION_RESTORE"):
+    if db_name.lower() in ("arad", "production") and not os.environ.get(
+        "CONFIRM_PRODUCTION_RESTORE"
+    ):
         raise PermissionError(
             f"Refusing to restore over production database '{db_name}'. "
             "Set CONFIRM_PRODUCTION_RESTORE=true to force."
@@ -90,20 +98,33 @@ def run_restore(
 
     def _exec_psql(cmd_args: list[str], stdin_f=None) -> subprocess.CompletedProcess:
         if use_local_psql:
-            full_cmd = [str(psql_bin), "-h", str(params["host"]), "-p", str(params["port"]), "-U", str(params["user"])] + cmd_args
+            full_cmd = [
+                str(psql_bin),
+                "-h",
+                str(params["host"]),
+                "-p",
+                str(params["port"]),
+                "-U",
+                str(params["user"]),
+            ] + cmd_args
             return subprocess.run(full_cmd, env=env, stdin=stdin_f, capture_output=True, text=True)
         else:
             full_cmd = [
-                "docker", "exec",
+                "docker",
+                "exec",
             ]
             if stdin_f is not None:
                 full_cmd.append("-i")
-            full_cmd.extend([
-                "-e", f"PGPASSWORD={params['password']}",
-                c_name,
-                "psql",
-                "-U", str(params["user"]),
-            ])
+            full_cmd.extend(
+                [
+                    "-e",
+                    f"PGPASSWORD={params['password']}",
+                    c_name,
+                    "psql",
+                    "-U",
+                    str(params["user"]),
+                ]
+            )
             full_cmd.extend(cmd_args)
             return subprocess.run(full_cmd, stdin=stdin_f, capture_output=True, text=True)
 
@@ -125,8 +146,10 @@ def run_restore(
     # Verification queries
     verify_queries = [
         ("Checking Alembic migration table", "SELECT count(*) FROM alembic_version;"),
-        ("Checking Inventory Item available stock non-negative invariant",
-         "SELECT count(*) FROM inventory_items WHERE on_hand - reserved < 0;"),
+        (
+            "Checking Inventory Item available stock non-negative invariant",
+            "SELECT count(*) FROM inventory_items WHERE on_hand - reserved < 0;",
+        ),
         ("Checking Order count", "SELECT count(*) FROM orders;"),
         ("Checking Product count", "SELECT count(*) FROM products;"),
     ]
@@ -136,7 +159,9 @@ def run_restore(
         val = res.stdout.strip()
         print(f"  [OK] {desc}: result = {val}")
         if "invariant" in desc.lower() and int(val) > 0:
-            raise AssertionError(f"FATAL: Invariant violated after restore: {val} rows with negative available stock!")
+            raise AssertionError(
+                f"FATAL: Invariant violated after restore: {val} rows with negative available stock!"
+            )
 
     print("Database restoration and integrity verification SUCCESSFUL!")
     return True

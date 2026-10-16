@@ -124,20 +124,26 @@ async def test_app_bypass_rls_guc_cannot_bypass_rls(database: Database) -> None:
     async with database.new_scope(tenant_id=str(tenant_a)) as scope:
         await scope.session.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
         # Verify GUC is indeed 'on'
-        guc_val = await scope.session.execute(text("SELECT current_setting('app.bypass_rls', true)"))
+        guc_val = await scope.session.execute(
+            text("SELECT current_setting('app.bypass_rls', true)")
+        )
         assert guc_val.scalar_one() == "on"
 
         # RLS MUST STILL PREVENT reading Tenant B's product!
         res = await scope.session.execute(text("SELECT id FROM products"))
         found_ids = [r.id for r in res.fetchall()]
         assert prod_a_id in found_ids
-        assert prod_b_id not in found_ids, "VULNERABILITY: app.bypass_rls allowed reading Tenant B product!"
+        assert prod_b_id not in found_ids, (
+            "VULNERABILITY: app.bypass_rls allowed reading Tenant B product!"
+        )
 
     # Malicious attempt: Scope with no tenant context sets app.bypass_rls = 'on'
     async with database.new_scope() as scope:
         await scope.session.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
         res = await scope.session.execute(text("SELECT count(*) FROM products"))
-        assert res.scalar_one() == 0, "VULNERABILITY: app.bypass_rls allowed un-scoped access to products!"
+        assert res.scalar_one() == 0, (
+            "VULNERABILITY: app.bypass_rls allowed un-scoped access to products!"
+        )
 
 
 async def test_tenant_isolation_reads(database: Database) -> None:
@@ -377,7 +383,9 @@ async def test_connection_reuse_resets_tenant_context(database: Database) -> Non
     # 2. Second transaction: new scope without tenant context on the same pool
     async with database.new_scope() as scope:
         # Check current_tenant_id GUC
-        res = await scope.session.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+        res = await scope.session.execute(
+            text("SELECT current_setting('app.current_tenant_id', true)")
+        )
         tid_val = res.scalar_one()
         assert tid_val in ("", None), f"Tenant ID leaked across transactions: {tid_val}"
 
@@ -528,7 +536,14 @@ async def test_worker_per_tenant_reservation_expiration(database: Database) -> N
                 "INSERT INTO reservation_allocations (id, tenant_id, reservation_id, inventory_item_id, warehouse_id, sku_id, quantity, created_at) "
                 "VALUES (:id, :tid, :rid, :iid, :wid, :sku, 5, now())"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_a, "rid": res_a_id, "iid": item_a_id, "wid": wh_a_id, "sku": sku_a_id},
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_a,
+                "rid": res_a_id,
+                "iid": item_a_id,
+                "wid": wh_a_id,
+                "sku": sku_a_id,
+            },
         )
         await scope.commit()
 
@@ -589,7 +604,14 @@ async def test_worker_per_tenant_reservation_expiration(database: Database) -> N
                 "INSERT INTO reservation_allocations (id, tenant_id, reservation_id, inventory_item_id, warehouse_id, sku_id, quantity, created_at) "
                 "VALUES (:id, :tid, :rid, :iid, :wid, :sku, 3, now())"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_b, "rid": res_b_id, "iid": item_b_id, "wid": wh_b_id, "sku": sku_b_id},
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_b,
+                "rid": res_b_id,
+                "iid": item_b_id,
+                "wid": wh_b_id,
+                "sku": sku_b_id,
+            },
         )
         await scope.commit()
 

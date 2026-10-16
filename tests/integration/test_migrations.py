@@ -199,7 +199,9 @@ class TestMigrations:
             result = await connection.execute(
                 text("SELECT policyname FROM pg_policies WHERE qual ILIKE '%bypass_rls%'")
             )
-            assert result.all() == [], "Policies must not contain bypass_rls after rejected downgrade"
+            assert result.all() == [], (
+                "Policies must not contain bypass_rls after rejected downgrade"
+            )
 
         assert await table_names(scratch_database) == EXPECTED_TABLES
 

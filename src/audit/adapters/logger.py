@@ -30,9 +30,8 @@ def _redact_dict(data: dict[str, Any] | None) -> dict[str, Any] | None:
     cleaned: dict[str, Any] = {}
     for key, value in data.items():
         k_lower = key.lower()
-        if (
-            k_lower in _REDACTED_FIELDS
-            or any(term in k_lower for term in ("secret", "password", "token", "credential"))
+        if k_lower in _REDACTED_FIELDS or any(
+            term in k_lower for term in ("secret", "password", "token", "credential")
         ):
             cleaned[key] = "[REDACTED]"
         elif isinstance(value, dict):

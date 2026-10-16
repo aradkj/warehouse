@@ -49,8 +49,12 @@ def upgrade() -> None:
     op.execute("GRANT USAGE ON SCHEMA public TO arad_app")
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO arad_app")
     op.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO arad_app")
-    op.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO arad_app")
-    op.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO arad_app")
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO arad_app"
+    )
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO arad_app"
+    )
 
     # 1. Hardened direct tenant-owned tables (NO app.bypass_rls GUC condition)
     for table in TENANT_TABLES:

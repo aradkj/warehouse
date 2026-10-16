@@ -74,9 +74,7 @@ async def readyz(
         )
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         checks["database"] = "unreachable"
-        return HealthResponse(
-            status="degraded", environment=settings.environment, checks=checks
-        )
+        return HealthResponse(status="degraded", environment=settings.environment, checks=checks)
 
     # Cache is an accelerator: Redis outage degrades cache without failing readiness
     try:

@@ -550,9 +550,7 @@ class TestConcurrentOrdersAndIdempotency:
         # Invariants in PostgreSQL:
         assert await scalar(admin_engine, "SELECT count(*) FROM orders") == 2
         assert (
-            await scalar(
-                admin_engine, "SELECT count(*) FROM reservations WHERE status = 'ACTIVE'"
-            )
+            await scalar(admin_engine, "SELECT count(*) FROM reservations WHERE status = 'ACTIVE'")
             == 1
         )
 

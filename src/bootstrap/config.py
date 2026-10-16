@@ -192,9 +192,7 @@ class Settings(BaseSettings):
     def _validate_production_secrets(self) -> Settings:
         if self.is_production:
             if not self.auth_required:
-                raise ValueError(
-                    "In production, ARAD_AUTH_REQUIRED must be set to true"
-                )
+                raise ValueError("In production, ARAD_AUTH_REQUIRED must be set to true")
             insecure_placeholders = (
                 "insecure-dev-secret",
                 "replace_with",
@@ -204,9 +202,8 @@ class Settings(BaseSettings):
                 "placeholder",
             )
             secret_lower = self.auth_jwt_secret.lower()
-            if (
-                len(self.auth_jwt_secret) < 32
-                or any(p in secret_lower for p in insecure_placeholders)
+            if len(self.auth_jwt_secret) < 32 or any(
+                p in secret_lower for p in insecure_placeholders
             ):
                 raise ValueError(
                     "In production, ARAD_AUTH_JWT_SECRET must be configured "

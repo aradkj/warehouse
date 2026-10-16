@@ -161,16 +161,12 @@ class PrometheusMetrics:
                         # +Inf bucket
                         inf_labels = dict(base_label_dict)
                         inf_labels["le"] = "+Inf"
-                        rendered_inf = ",".join(
-                            f'{k}="{v}"' for k, v in sorted(inf_labels.items())
-                        )
+                        rendered_inf = ",".join(f'{k}="{v}"' for k, v in sorted(inf_labels.items()))
                         l_str = f"{{{rendered_inf}}}"
                         lines.append(f"{name}_bucket{l_str} {data['count']}")
                         # sum and count
                         base_str = (
-                            "{" + ",".join(f'{k}="{v}"' for k, v in labels) + "}"
-                            if labels
-                            else ""
+                            "{" + ",".join(f'{k}="{v}"' for k, v in labels) + "}" if labels else ""
                         )
                         lines.append(f"{name}_sum{base_str} {data['sum']:.6f}")
                         lines.append(f"{name}_count{base_str} {data['count']}")

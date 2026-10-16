@@ -161,17 +161,11 @@ class IdempotentConsumer:
 
         raw_correlation = message.headers.get("x-correlation-id") if message.headers else None
         raw_causation = message.headers.get("x-causation-id") if message.headers else None
-        correlation_id: str = (
-            _header_to_str(raw_correlation)
-            or str(body.get("correlation_id") or uuid.uuid4())
+        correlation_id: str = _header_to_str(raw_correlation) or str(
+            body.get("correlation_id") or uuid.uuid4()
         )
-        causation_id: str | None = (
-            _header_to_str(raw_causation)
-            or (
-                str(body["causation_id"])
-                if body.get("causation_id") is not None
-                else str(event_id)
-            )
+        causation_id: str | None = _header_to_str(raw_causation) or (
+            str(body["causation_id"]) if body.get("causation_id") is not None else str(event_id)
         )
 
         handler = self._handlers.get(event_type)

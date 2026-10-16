@@ -506,9 +506,7 @@ class ProductSearchProjector:
             order_id=str(event.order_id),
             warehouse_id=str(event.warehouse_id),
             exception_type=(
-                "CarrierPermanentFailure"
-                if event.is_permanent
-                else "CarrierTemporaryFailure"
+                "CarrierPermanentFailure" if event.is_permanent else "CarrierTemporaryFailure"
             ),
             status="FAILED",
             reason=event.reason,

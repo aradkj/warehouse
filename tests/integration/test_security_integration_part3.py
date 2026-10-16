@@ -572,9 +572,7 @@ class TestSearchReindexSecurityIntegration:
         assert resp.status_code == 403
         assert resp.json()["error"]["code"] == "forbidden"
 
-    async def test_tenant_admin_can_reindex_own_tenant(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_tenant_admin_can_reindex_own_tenant(self, client: httpx.AsyncClient) -> None:
         """Tenant Admin specifying their own tenant ID can successfully trigger reindex."""
         tenant_a, admin_token_a, _, _, _, _ = await setup_tenant_and_users(client)
 
@@ -750,9 +748,7 @@ class TestABACDecisionTraceabilityAndAudit:
         try:
             scope = db.new_scope()
             auth_settings = Settings(auth_required=True)
-            use_cases = build_use_cases(
-                settings=auth_settings, clock=SystemClock(), scope=scope
-            )
+            use_cases = build_use_cases(settings=auth_settings, clock=SystemClock(), scope=scope)
             authorizer = use_cases.create_order._authorizer
             assert authorizer is not None
             tenant_id = uuid.uuid4()
@@ -807,8 +803,7 @@ class TestABACDecisionTraceabilityAndAudit:
             async with db.new_scope(bypass_rls=True) as scope:
                 res = await scope.session.execute(
                     text(
-                        "SELECT action, details FROM audit_logs "
-                        "ORDER BY occurred_at DESC LIMIT 50"
+                        "SELECT action, details FROM audit_logs ORDER BY occurred_at DESC LIMIT 50"
                     )
                 )
                 rows = res.fetchall()

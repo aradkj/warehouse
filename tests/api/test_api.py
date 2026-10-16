@@ -76,9 +76,7 @@ class TestHealth:
         response = await client.get("/healthz", headers={"traceparent": traceparent})
         assert response.headers.get("traceparent") == traceparent
 
-    async def test_prometheus_metrics_endpoint_is_exposed(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_prometheus_metrics_endpoint_is_exposed(self, client: httpx.AsyncClient) -> None:
         # Generate some traffic first
         await client.get("/healthz")
         response = await client.get("/metrics")
@@ -88,9 +86,7 @@ class TestHealth:
         assert "http_requests_total" in text
         assert "http_request_duration_seconds" in text
 
-    async def test_readyz_reports_migrations_status(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_readyz_reports_migrations_status(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/readyz")
         assert response.status_code == 200
         body = response.json()

@@ -257,9 +257,8 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
             scope = self._database.new_scope(tenant_id=str(t_uuid))
             async with scope:
                 session = scope.session
-                stmt = (
-                    select(products.c.id, products.c.tenant_id, products.c.version)
-                    .where(products.c.tenant_id == t_uuid)
+                stmt = select(products.c.id, products.c.tenant_id, products.c.version).where(
+                    products.c.tenant_id == t_uuid
                 )
                 if last_id is not None:
                     stmt = stmt.where(products.c.id > last_id)

@@ -182,6 +182,7 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             principal = Principal(id="system", type=ActorType.SYSTEM)
         elif principal is None:
             from shared.application.errors import Unauthorized
+
             raise Unauthorized(
                 "authentication required: no authenticated principal on execution context",
                 details={"action": action, "resource_type": resource_type},
@@ -424,6 +425,7 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
             principal = Principal(id="system", type=ActorType.SYSTEM)
         elif principal is None:
             from shared.application.errors import Unauthorized
+
             raise Unauthorized(
                 "authentication required: no authenticated principal on execution context",
                 details={"action": action, "resource_type": resource_type},
@@ -479,9 +481,7 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         async with self._uow_factory() as uow:
             scope = getattr(uow, "_scope", None)
             if scope is not None and hasattr(scope, "set_tenant_context"):
-                active_tid = tenant_id or (
-                    getattr(context, "tenant_id", None) if context else None
-                )
+                active_tid = tenant_id or (getattr(context, "tenant_id", None) if context else None)
                 active_uid = (
                     str(context.actor_id)
                     if (context and getattr(context, "actor_id", None))

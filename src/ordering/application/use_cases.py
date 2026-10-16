@@ -114,8 +114,7 @@ class CreateOrder(UseCase[CreateOrderCommand, OrderView, OrderingUnitOfWork]):
                 )
 
         total_minor = sum(
-            catalog[line.sku_id].unit_price.amount_minor * line.quantity
-            for line in command.lines
+            catalog[line.sku_id].unit_price.amount_minor * line.quantity for line in command.lines
         )
         currency = catalog[sku_ids[0]].unit_price.currency
 
