@@ -110,6 +110,32 @@ from shared.ports.cache import CachePort
 # process-wide singletons (immutable, therefore safe to share)
 # ---------------------------------------------------------------------------
 _clock: Clock = SystemClock()
+_tenant_membership_cache: dict[tuple[str, TenantId], tuple[float, bool]] = {}
+
+
+def invalidate_tenant_membership_cache(
+    user_id: UserId | str | None = None,
+    tenant_id: TenantId | None = None,
+) -> None:
+    """Clear cached tenant membership validation results.
+
+    Membership checks are performed directly against PostgreSQL on every request
+    to ensure immediate cross-worker revocation. Retained for backwards compatibility.
+    """
+    global _tenant_membership_cache
+    if user_id is None and tenant_id is None:
+        _tenant_membership_cache.clear()
+        return
+    uid_str = str(user_id) if user_id is not None else None
+    keys_to_remove = [
+        k
+        for k in _tenant_membership_cache
+        if (uid_str is None or k[0] == uid_str)
+        and (tenant_id is None or k[1] == tenant_id)
+    ]
+    for k in keys_to_remove:
+        _tenant_membership_cache.pop(k, None)
+
 
 
 def get_application_settings(request: Request) -> Settings:
@@ -173,8 +199,8 @@ def get_transaction_scope(
 ) -> SqlAlchemyTransactionScope:
     """One transaction scope per request.
 
-    Every use case invoked while handling the request participates in the same
-    transaction; commit happens inside the use case that owns the operation.
+    Starts without an unverified tenant context. Trusted tenant context is bound
+    only after authentication and tenant membership validation.
     """
     return database.new_scope()
 
@@ -272,105 +298,108 @@ async def get_current_principal(
             permissions=frozenset({"*"}),
         )
 
-    async with database.new_scope(bypass_rls=True) as scope:
-        from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
+    raw_tid = claims.get("tenant_id")
+    raw_uid = str(sub) if token_type != "service_account" else None
+    raw_cid = claims.get("client_id") if token_type == "service_account" else None
+    scope = database.new_scope(tenant_id=raw_tid, user_id=raw_uid, client_id=raw_cid)
+    from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
 
-        async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
-            if token_type == "service_account":
+    async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
+        if token_type == "service_account":
+            try:
+                sa_id = ServiceAccountId(uuid.UUID(sub))
+            except ValueError as exc:
+                raise AuthenticationFailed("malformed subject in token") from exc
+
+            sa = await uow.service_accounts.get(sa_id)
+            if sa is None or sa.status != ServiceAccountStatus.ACTIVE:
+                raise AccountDisabled("service account is disabled or does not exist")
+
+            token_version = claims.get("token_version")
+            if token_version is None or token_version != sa.version:
+                raise AuthenticationFailed(
+                    "service account token has been invalidated by secret rotation"
+                )
+
+            tenant = await uow.tenants.get(sa.tenant_id)
+            if tenant is None or tenant.status != TenantStatus.ACTIVE:
+                raise TenantSuspended("tenant is suspended or does not exist")
+
+            return Principal(
+                id=str(sa.id),
+                type=ActorType.SERVICE_ACCOUNT,
+                email=None,
+                active_tenant_id=sa.tenant_id,
+                active_membership_id=None,
+                account_status=sa.status.value,
+                role="SERVICE_ACCOUNT",
+                roles=(),
+                permissions=sa.scopes,
+            )
+        else:
+            try:
+                user_id = UserId(uuid.UUID(sub))
+            except ValueError as exc:
+                raise AuthenticationFailed("malformed subject in token") from exc
+
+            user = await uow.users.get(user_id)
+            if user is None:
+                raise AuthenticationFailed("user does not exist")
+            if user.status != UserStatus.ACTIVE:
+                raise AccountDisabled(f"user account is {user.status.value.lower()}")
+
+            active_tenant_id = None
+            active_membership_id = None
+            membership = None
+
+            raw_tenant_id = claims.get("tenant_id")
+            if raw_tenant_id:
                 try:
-                    sa_id = ServiceAccountId(uuid.UUID(sub))
+                    active_tenant_id = TenantId(uuid.UUID(raw_tenant_id))
                 except ValueError as exc:
-                    raise AuthenticationFailed("malformed subject in token") from exc
+                    raise AuthenticationFailed("malformed tenant_id in token") from exc
 
-                sa = await uow.service_accounts.get(sa_id)
-                if sa is None or sa.status != ServiceAccountStatus.ACTIVE:
-                    raise AccountDisabled("service account is disabled or does not exist")
-
-                token_version = claims.get("token_version")
-                if token_version is None or token_version != sa.version:
-                    raise AuthenticationFailed(
-                        "service account token has been invalidated by secret rotation"
-                    )
-
-                tenant = await uow.tenants.get(sa.tenant_id)
+                tenant = await uow.tenants.get(active_tenant_id)
                 if tenant is None or tenant.status != TenantStatus.ACTIVE:
                     raise TenantSuspended("tenant is suspended or does not exist")
 
-                return Principal(
-                    id=str(sa.id),
-                    type=ActorType.SERVICE_ACCOUNT,
-                    email=None,
-                    active_tenant_id=sa.tenant_id,
-                    active_membership_id=None,
-                    account_status=sa.status.value,
-                    role="SERVICE_ACCOUNT",
-                    roles=(),
-                    permissions=sa.scopes,
+                membership = await uow.memberships.get_by_user_and_tenant(
+                    user.id, active_tenant_id
                 )
-            else:
-                try:
-                    user_id = UserId(uuid.UUID(sub))
-                except ValueError as exc:
-                    raise AuthenticationFailed("malformed subject in token") from exc
+                if membership is None:
+                    raise Forbidden("user is not a member of the active tenant")
+                if membership.status != MembershipStatus.ACTIVE:
+                    raise MembershipDisabled("tenant membership is disabled")
 
-                user = await uow.users.get(user_id)
-                if user is None:
-                    raise AuthenticationFailed("user does not exist")
-                if user.status != UserStatus.ACTIVE:
-                    raise AccountDisabled(f"user account is {user.status.value.lower()}")
+                active_membership_id = membership.id
 
-                active_tenant_id = None
-                active_membership_id = None
-                membership = None
+            effective_roles: set[str] = set()
+            perms: set[str] = set()
+            from identity.domain.role import SYSTEM_ROLES_PERMISSIONS
 
-                raw_tenant_id = claims.get("tenant_id")
-                if raw_tenant_id:
-                    try:
-                        active_tenant_id = TenantId(uuid.UUID(raw_tenant_id))
-                    except ValueError as exc:
-                        raise AuthenticationFailed("malformed tenant_id in token") from exc
+            if membership is not None:
+                if membership.roles:
+                    effective_roles.update(membership.roles)
+                else:
+                    effective_roles.add(membership.role.value)
+                for r_name in effective_roles:
+                    if r_name in SYSTEM_ROLES_PERMISSIONS:
+                        perms.update(SYSTEM_ROLES_PERMISSIONS[r_name])
+                    r_obj = await uow.roles.get_by_name(r_name, active_tenant_id)
+                    if r_obj is not None:
+                        perms.update(r_obj.permissions)
 
-                    tenant = await uow.tenants.get(active_tenant_id)
-                    if tenant is None or tenant.status != TenantStatus.ACTIVE:
-                        raise TenantSuspended("tenant is suspended or does not exist")
-
-                    membership = await uow.memberships.get_by_user_and_tenant(
-                        user.id, active_tenant_id
-                    )
-                    if membership is None:
-                        raise Forbidden("user is not a member of the active tenant")
-                    if membership.status != MembershipStatus.ACTIVE:
-                        raise MembershipDisabled("tenant membership is disabled")
-
-                    active_membership_id = membership.id
-
-                effective_roles: set[str] = set()
-                perms: set[str] = set()
-                from identity.domain.role import SYSTEM_ROLES_PERMISSIONS
-
-                if membership is not None:
-                    if membership.roles:
-                        effective_roles.update(membership.roles)
-                    else:
-                        effective_roles.add(membership.role.value)
-                    for r_name in effective_roles:
-                        if r_name in SYSTEM_ROLES_PERMISSIONS:
-                            perms.update(SYSTEM_ROLES_PERMISSIONS[r_name])
-                        r_obj = await uow.roles.get_by_name(r_name, active_tenant_id)
-                        if r_obj is not None:
-                            perms.update(r_obj.permissions)
-
-                return Principal(
-                    id=str(user.id),
-                    type=ActorType.USER,
-                    email=user.email,
-                    active_tenant_id=active_tenant_id,
-                    active_membership_id=active_membership_id,
-                    account_status=user.status.value,
-                    role=membership.role.value if membership is not None else "MEMBER",
-                    roles=tuple(sorted(effective_roles)),
-                    permissions=frozenset(perms),
-                )
+            return Principal(
+                id=str(user.id),
+                type=ActorType.USER,
+                email=user.email,
+                active_tenant_id=active_tenant_id,
+                active_membership_id=active_membership_id,
+                account_status=user.status.value,
+                role=membership.role.value if membership is not None else "MEMBER",
+                roles=tuple(sorted(effective_roles)),
+                permissions=frozenset(perms),
+            )
 
 
 async def require_current_principal(
@@ -387,6 +416,7 @@ async def get_authenticated_tenant_context(
     settings: Annotated[Settings, Depends(get_application_settings)],
     principal: Annotated[Principal | None, Depends(get_current_principal)],
     database: Annotated[Database, Depends(get_database)],
+    scope: Annotated[SqlAlchemyTransactionScope | None, Depends(get_transaction_scope)] = None,
     tenant_header: Annotated[str | None, Header(alias="X-Tenant-Id")] = None,
     actor_header: Annotated[str | None, Header(alias="X-Actor-Id")] = None,
     actor_type_header: Annotated[str | None, Header(alias="X-Actor-Type")] = None,
@@ -403,27 +433,6 @@ async def get_authenticated_tenant_context(
                     "the tenant header is not a valid identifier",
                     details={"header": "X-Tenant-Id"},
                 ) from exc
-
-            if principal.is_user:
-                async with database.new_scope(bypass_rls=True) as scope:
-                    from identity.adapters.persistence.unit_of_work import (
-                        SqlAlchemyIdentityUnitOfWork,
-                    )
-
-                    async with SqlAlchemyIdentityUnitOfWork(scope) as uow:
-                        tenant = await uow.tenants.get(selected_tenant_id)
-                        if tenant is None or tenant.status != TenantStatus.ACTIVE:
-                            raise TenantSuspended("tenant is suspended or does not exist")
-
-                        membership = await uow.memberships.get_by_user_and_tenant(
-                            UserId(uuid.UUID(principal.id)), selected_tenant_id
-                        )
-                        if membership is None:
-                            raise Forbidden("user is not a member of the requested tenant")
-                        if membership.status != MembershipStatus.ACTIVE:
-                            raise MembershipDisabled("tenant membership is disabled")
-            elif principal.is_service_account and principal.active_tenant_id != selected_tenant_id:
-                raise Forbidden("service account cannot access a different tenant")
         else:
             selected_tenant_id = principal.active_tenant_id
 
@@ -433,6 +442,30 @@ async def get_authenticated_tenant_context(
                 details={"header": "X-Tenant-Id"},
             )
 
+        if principal.is_user:
+            async with database.new_scope(
+                tenant_id=str(selected_tenant_id),
+                user_id=principal.id,
+            ) as verify_scope:
+                from identity.adapters.persistence.unit_of_work import (
+                    SqlAlchemyIdentityUnitOfWork,
+                )
+
+                async with SqlAlchemyIdentityUnitOfWork(verify_scope) as uow:
+                    tenant = await uow.tenants.get(selected_tenant_id)
+                    if tenant is None or tenant.status != TenantStatus.ACTIVE:
+                        raise TenantSuspended("tenant is suspended or does not exist")
+
+                    membership = await uow.memberships.get_by_user_and_tenant(
+                        UserId(uuid.UUID(principal.id)), selected_tenant_id
+                    )
+                    if membership is None:
+                        raise Forbidden("user is not a member of the requested tenant")
+                    if membership.status != MembershipStatus.ACTIVE:
+                        raise MembershipDisabled("tenant membership is disabled")
+        elif principal.is_service_account and principal.active_tenant_id != selected_tenant_id:
+            raise Forbidden("service account cannot access a different tenant")
+
         correlation_id = (
             request.headers.get("X-Correlation-Id")
             or getattr(request.state, "correlation_id", None)
@@ -441,6 +474,12 @@ async def get_authenticated_tenant_context(
         key = idempotency_header.strip() if idempotency_header else None
         if key is not None and not 1 <= len(key) <= 255:
             raise InvalidRequest("the idempotency key must be 1-255 characters")
+
+        if scope is not None and hasattr(scope, "set_tenant_context"):
+            await scope.set_tenant_context(
+                selected_tenant_id,
+                user_id=principal.id,
+            )
 
         return RequestContext(
             tenant_id=selected_tenant_id,
@@ -467,6 +506,12 @@ async def get_authenticated_tenant_context(
             "the X-Tenant-Id header is required for this operation",
             details={"header": "X-Tenant-Id"},
         )
+    if (
+        scope is not None
+        and hasattr(scope, "set_tenant_context")
+        and legacy_context.tenant_id is not None
+    ):
+        await scope.set_tenant_context(legacy_context.tenant_id)
     legacy_principal = Principal(
         id=str(legacy_context.actor_id),
         type=legacy_context.actor_type,
@@ -527,8 +572,9 @@ def get_authorization_service(
     from audit.adapters.persistence.repositories import SqlAlchemyAuditAdapter
     from identity.adapters.persistence.unit_of_work import SqlAlchemyIdentityUnitOfWork
 
-    def _uow_factory() -> SqlAlchemyIdentityUnitOfWork:
-        return SqlAlchemyIdentityUnitOfWork(database.new_scope())
+    def _uow_factory(tid: TenantId | None = None) -> SqlAlchemyIdentityUnitOfWork:
+        active_tid = str(tid) if tid is not None else getattr(scope, "_tenant_id", None)
+        return SqlAlchemyIdentityUnitOfWork(database.new_scope(tenant_id=active_tid))
 
     return ApplicationAuthorizationService(
         uow_factory=_uow_factory,
@@ -928,15 +974,12 @@ async def get_admin_context(
     if not is_admin:
         raise Forbidden("administrative operations require system or administrator privileges")
 
-    if scope is not None:
-        if (
-            principal.active_tenant_id is None
-            and (principal.type == ActorType.SYSTEM or principal.has_permission("*"))
-            and hasattr(scope, "set_bypass_rls")
-        ):
-            await scope.set_bypass_rls(True)
-        elif principal.active_tenant_id is not None and hasattr(scope, "set_tenant_context"):
-            await scope.set_tenant_context(principal.active_tenant_id)
+    if (
+        scope is not None
+        and principal.active_tenant_id is not None
+        and hasattr(scope, "set_tenant_context")
+    ):
+        await scope.set_tenant_context(principal.active_tenant_id)
 
     correlation_id = (
         request.headers.get("X-Correlation-Id")
@@ -1057,6 +1100,7 @@ __all__ = [
     "get_token_service",
     "get_transaction_scope",
     "get_use_cases",
+    "invalidate_tenant_membership_cache",
     "parse_if_match",
     "require_current_principal",
     "require_permission",

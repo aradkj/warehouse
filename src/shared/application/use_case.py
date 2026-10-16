@@ -264,15 +264,13 @@ class UseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
         now = self._clock.now()
         async with self._uow_factory() as uow:
             scope = getattr(uow, "_scope", None)
-            if scope is not None:
-                from shared.application.context import ActorType
-                if self.bypass_rls or context.actor_type == ActorType.SYSTEM:
-                    if hasattr(scope, "set_bypass_rls"):
-                        await scope.set_bypass_rls(True)
-                elif tenant_id is not None and hasattr(scope, "set_tenant_context"):
-                    await scope.set_tenant_context(tenant_id)
-                elif context.tenant_id is not None and hasattr(scope, "set_tenant_context"):
-                    await scope.set_tenant_context(context.tenant_id)
+            if scope is not None and hasattr(scope, "set_tenant_context"):
+                active_tid = tenant_id or context.tenant_id
+                active_uid = str(context.actor_id) if getattr(context, "actor_id", None) else None
+                try:
+                    await scope.set_tenant_context(active_tid, user_id=active_uid)
+                except TypeError:
+                    await scope.set_tenant_context(active_tid)
 
             claim = None
             if key is not None and tenant_id is not None:
@@ -480,18 +478,19 @@ class QueryUseCase[CommandT: Command, ViewT, UowT: ApplicationUnitOfWork](ABC):
 
         async with self._uow_factory() as uow:
             scope = getattr(uow, "_scope", None)
-            if scope is not None:
-                from shared.application.context import ActorType
-
-                is_system = (
-                    context is not None
-                    and getattr(context, "actor_type", None) == ActorType.SYSTEM
+            if scope is not None and hasattr(scope, "set_tenant_context"):
+                active_tid = tenant_id or (
+                    getattr(context, "tenant_id", None) if context else None
                 )
-                if self.bypass_rls or is_system:
-                    if hasattr(scope, "set_bypass_rls"):
-                        await scope.set_bypass_rls(True)
-                elif tenant_id is not None and hasattr(scope, "set_tenant_context"):
-                    await scope.set_tenant_context(tenant_id)
+                active_uid = (
+                    str(context.actor_id)
+                    if (context and getattr(context, "actor_id", None))
+                    else None
+                )
+                try:
+                    await scope.set_tenant_context(active_tid, user_id=active_uid)
+                except TypeError:
+                    await scope.set_tenant_context(active_tid)
             return await self._execute(uow, command)
 
     @abstractmethod

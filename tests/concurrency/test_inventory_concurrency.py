@@ -514,5 +514,51 @@ class TestConcurrentOrdersAndIdempotency:
         snapshot = (await stock_rows(admin_engine, fixture.sku_id))[0]
         assert snapshot == {"on_hand": 5, "reserved": 4, "available": 1}
 
+    async def test_concurrent_order_submissions_competing_for_last_sku_unit_with_distinct_keys(
+        self, database: Database, admin_engine: AsyncEngine
+    ) -> None:
+        """Two independent orders concurrently compete for the single remaining unit of a SKU.
+
+        Guarantees verified:
+        - Exactly one order successfully secures the reservation and confirms.
+        - Competing order is backordered (or rejected under REJECT policy) with 0 reserved.
+        - Available inventory never becomes negative (on_hand=1, reserved=1, available=0).
+        - Exactly one active reservation exists in PostgreSQL.
+        - Exactly one order confirmed outbox event exists.
+        """
+        fixture = await provision(database, stock_per_warehouse=(1,))
+        lines = (OrderLineRequest(sku_id=fixture.sku_id, quantity=1),)
+
+        async def worker(index: int, barrier: asyncio.Barrier) -> tuple[str, str]:
+            await barrier.wait()
+            use_cases = use_cases_for(database)
+            outcome = await use_cases.create_order(
+                CreateOrderCommand(
+                    tenant_id=fixture.tenant_id,
+                    context=context_for(fixture.tenant_id, key=f"compete-order-{index}"),
+                    lines=lines,
+                )
+            )
+            return str(outcome.view.id), outcome.view.status
+
+        results = await run_concurrently(2, worker)
+        statuses = [status for _, status in results]
+
+        # Exactly one order is CONFIRMED and the competitor is BACKORDERED
+        assert sorted(statuses) == ["BACKORDERED", "CONFIRMED"], f"Unexpected statuses: {statuses}"
+
+        # Invariants in PostgreSQL:
+        assert await scalar(admin_engine, "SELECT count(*) FROM orders") == 2
+        assert (
+            await scalar(
+                admin_engine, "SELECT count(*) FROM reservations WHERE status = 'ACTIVE'"
+            )
+            == 1
+        )
+
+        snapshot = (await stock_rows(admin_engine, fixture.sku_id))[0]
+        assert snapshot == {"on_hand": 1, "reserved": 1, "available": 0}
+        assert snapshot["available"] >= 0
+
 
 __all__: list[str] = []

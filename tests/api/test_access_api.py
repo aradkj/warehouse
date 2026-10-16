@@ -354,3 +354,79 @@ class TestAccessAPI:
         assert supp_order["total"] is None
         assert supp_order["lines"][0]["unit_price"] is None
         assert supp_order["lines"][0]["line_total"] is None
+
+
+class TestTenantMembershipAndPolicyCacheIntegration:
+    """Verifies end-to-end HTTP cache behavior and immediate invalidation."""
+
+    async def test_policy_cache_invalidation_on_creation_and_deactivation(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        tenant_id, admin_token, member_token, _, _, _ = await setup_tenant_and_users(client)
+
+        # Baseline evaluation: orders.create is permitted for member
+        eval_resp = await client.post(
+            "/v1/access/evaluate",
+            headers={"Authorization": f"Bearer {member_token}", "X-Tenant-Id": tenant_id},
+            json={"action": "orders.create", "resource_type": "orders"},
+        )
+        assert eval_resp.status_code == 200
+        assert eval_resp.json()["allowed"] is True
+
+        # Admin creates an explicit DENY policy for orders.create
+        policy_resp = await client.post(
+            "/v1/access/policies",
+            headers={"Authorization": f"Bearer {admin_token}", "X-Tenant-Id": tenant_id},
+            json={
+                "name": "EmergencyDenyOrders",
+                "description": "Block all order creations",
+                "effect": "DENY",
+                "actions": ["orders.create"],
+                "resources": ["orders"],
+            },
+        )
+        assert policy_resp.status_code == 201
+        policy_id = policy_resp.json()["id"]
+
+        # Immediate evaluation MUST be denied (proving cache invalidation occurred on creation)
+        eval_after_deny = await client.post(
+            "/v1/access/evaluate",
+            headers={"Authorization": f"Bearer {member_token}", "X-Tenant-Id": tenant_id},
+            json={"action": "orders.create", "resource_type": "orders"},
+        )
+        assert eval_after_deny.status_code == 200
+        assert eval_after_deny.json()["allowed"] is False
+
+        # Admin deactivates the policy
+        status_resp = await client.patch(
+            f"/v1/access/policies/{policy_id}/status",
+            headers={"Authorization": f"Bearer {admin_token}", "X-Tenant-Id": tenant_id},
+            json={"status": "INACTIVE"},
+        )
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "INACTIVE"
+
+        # Immediate evaluation MUST be allowed again
+        # (proving cache invalidation occurred on status update)
+        eval_after_restore = await client.post(
+            "/v1/access/evaluate",
+            headers={"Authorization": f"Bearer {member_token}", "X-Tenant-Id": tenant_id},
+            json={"action": "orders.create", "resource_type": "orders"},
+        )
+        assert eval_after_restore.status_code == 200
+        assert eval_after_restore.json()["allowed"] is True
+
+    async def test_headerless_tenant_context_still_enforces_active_membership(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        tenant_id, _admin_token, member_token, _, _, _ = await setup_tenant_and_users(client)
+
+        # Request omitting X-Tenant-Id header resolves tenant from member_token claims
+        resp = await client.get(
+            "/v1/access/me",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] is not None
+        assert data["active_tenant_id"] == tenant_id

@@ -10,7 +10,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from catalog.adapters.persistence.tables import products, skus
 from search.application.models import build_product_document_id
@@ -111,6 +111,12 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
 
             return self._row_to_search_document(p, sku_rows, target_alias)
 
+    async def _get_all_tenant_ids(self) -> list[str]:
+        async with self._database.new_scope() as scope:
+            stmt = text("SELECT id FROM tenants WHERE status = 'ACTIVE'")
+            res = await scope.session.execute(stmt)
+            return [str(r[0]) for r in res.fetchall()]
+
     async def stream_search_documents(
         self,
         *,
@@ -119,24 +125,28 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
         batch_size: int = 200,
     ) -> AsyncIterator[tuple[SearchDocument, ...]]:
         """Asynchronously stream batches of SearchDocuments from PostgreSQL."""
-        t_uuid: uuid.UUID | None = None
-        if tenant_id:
-            try:
-                t_uuid = uuid.UUID(tenant_id)
-            except (ValueError, TypeError):
-                return
+        if tenant_id is None:
+            tenant_ids = await self._get_all_tenant_ids()
+            for tid in tenant_ids:
+                async for batch in self.stream_search_documents(
+                    tenant_id=tid,
+                    target_alias=target_alias,
+                    batch_size=batch_size,
+                ):
+                    yield batch
+            return
+
+        try:
+            t_uuid = uuid.UUID(tenant_id)
+        except (ValueError, TypeError):
+            return
 
         last_id: uuid.UUID | None = None
         while True:
-            scope = self._database.new_scope(
-                tenant_id=str(t_uuid) if t_uuid is not None else None,
-                bypass_rls=t_uuid is None,
-            )
+            scope = self._database.new_scope(tenant_id=str(t_uuid))
             async with scope:
                 session = scope.session
-                stmt = select(products)
-                if t_uuid is not None:
-                    stmt = stmt.where(products.c.tenant_id == t_uuid)
+                stmt = select(products).where(products.c.tenant_id == t_uuid)
                 if last_id is not None:
                     stmt = stmt.where(products.c.id > last_id)
                 stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)
@@ -148,9 +158,11 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
 
                 last_id = prod_rows[-1].id
                 prod_ids = [p.id for p in prod_rows]
-                skus_stmt = select(skus).where(skus.c.product_id.in_(prod_ids))
-                if t_uuid is not None:
-                    skus_stmt = skus_stmt.where(skus.c.tenant_id == t_uuid)
+                skus_stmt = (
+                    select(skus)
+                    .where(skus.c.product_id.in_(prod_ids))
+                    .where(skus.c.tenant_id == t_uuid)
+                )
 
                 skus_res = await session.execute(skus_stmt)
                 skus_rows = list(skus_res.fetchall())
@@ -170,22 +182,22 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
 
     async def count_authoritative_products(self, *, tenant_id: str | None = None) -> int:
         """Return total count of products in authoritative database."""
-        t_uuid: uuid.UUID | None = None
-        if tenant_id:
-            try:
-                t_uuid = uuid.UUID(tenant_id)
-            except (ValueError, TypeError):
-                return 0
+        if tenant_id is None:
+            tenant_ids = await self._get_all_tenant_ids()
+            total = 0
+            for tid in tenant_ids:
+                total += await self.count_authoritative_products(tenant_id=tid)
+            return total
 
-        scope = self._database.new_scope(
-            tenant_id=str(t_uuid) if t_uuid is not None else None,
-            bypass_rls=t_uuid is None,
-        )
+        try:
+            t_uuid = uuid.UUID(tenant_id)
+        except (ValueError, TypeError):
+            return 0
+
+        scope = self._database.new_scope(tenant_id=str(t_uuid))
         async with scope:
             session = scope.session
-            stmt = select(func.count(products.c.id))
-            if t_uuid is not None:
-                stmt = stmt.where(products.c.tenant_id == t_uuid)
+            stmt = select(func.count(products.c.id)).where(products.c.tenant_id == t_uuid)
             result = await session.execute(stmt)
             val = result.scalar_one()
             return int(val or 0)
@@ -194,22 +206,24 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
         self, *, tenant_id: str | None = None
     ) -> dict[str, tuple[str, int]]:
         """Fetch mapping of doc_id -> (tenant_id, version) from database."""
-        t_uuid: uuid.UUID | None = None
-        if tenant_id:
-            try:
-                t_uuid = uuid.UUID(tenant_id)
-            except (ValueError, TypeError):
-                return {}
+        if tenant_id is None:
+            tenant_ids = await self._get_all_tenant_ids()
+            combined: dict[str, tuple[str, int]] = {}
+            for tid in tenant_ids:
+                combined.update(await self.get_authoritative_keys(tenant_id=tid))
+            return combined
 
-        scope = self._database.new_scope(
-            tenant_id=str(t_uuid) if t_uuid is not None else None,
-            bypass_rls=t_uuid is None,
-        )
+        try:
+            t_uuid = uuid.UUID(tenant_id)
+        except (ValueError, TypeError):
+            return {}
+
+        scope = self._database.new_scope(tenant_id=str(t_uuid))
         async with scope:
             session = scope.session
-            stmt = select(products.c.id, products.c.tenant_id, products.c.version)
-            if t_uuid is not None:
-                stmt = stmt.where(products.c.tenant_id == t_uuid)
+            stmt = select(products.c.id, products.c.tenant_id, products.c.version).where(
+                products.c.tenant_id == t_uuid
+            )
             result = await session.execute(stmt)
             rows = result.fetchall()
             return {
@@ -223,24 +237,30 @@ class SqlAlchemyCatalogSearchReader(CatalogSearchReader):
         batch_size: int = 500,
     ) -> AsyncIterator[dict[str, tuple[str, int]]]:
         """Stream chunks of doc_id -> (tenant_id, version) using keyset pagination."""
-        t_uuid: uuid.UUID | None = None
-        if tenant_id:
-            try:
-                t_uuid = uuid.UUID(tenant_id)
-            except (ValueError, TypeError):
-                return
+        if tenant_id is None:
+            tenant_ids = await self._get_all_tenant_ids()
+            for tid in tenant_ids:
+                async for chunk in self.stream_authoritative_keys(
+                    tenant_id=tid,
+                    batch_size=batch_size,
+                ):
+                    yield chunk
+            return
+
+        try:
+            t_uuid = uuid.UUID(tenant_id)
+        except (ValueError, TypeError):
+            return
 
         last_id: uuid.UUID | None = None
         while True:
-            scope = self._database.new_scope(
-                tenant_id=str(t_uuid) if t_uuid is not None else None,
-                bypass_rls=t_uuid is None,
-            )
+            scope = self._database.new_scope(tenant_id=str(t_uuid))
             async with scope:
                 session = scope.session
-                stmt = select(products.c.id, products.c.tenant_id, products.c.version)
-                if t_uuid is not None:
-                    stmt = stmt.where(products.c.tenant_id == t_uuid)
+                stmt = (
+                    select(products.c.id, products.c.tenant_id, products.c.version)
+                    .where(products.c.tenant_id == t_uuid)
+                )
                 if last_id is not None:
                     stmt = stmt.where(products.c.id > last_id)
                 stmt = stmt.order_by(products.c.id.asc()).limit(batch_size)

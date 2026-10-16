@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from bootstrap.config import Settings
 from bootstrap.dependencies import get_application_settings, get_cache, get_database
+from bootstrap.metrics import metrics
 from bootstrap.schemas.common import HealthResponse
 from shared.infrastructure.db.session import Database
 from shared.ports.cache import CachePort
@@ -38,7 +39,7 @@ async def healthz(
     "/readyz",
     response_model=HealthResponse,
     summary="Readiness probe",
-    responses={503: {"description": "The system of record is unreachable."}},
+    responses={503: {"description": "The system of record is unreachable or unmigrated."}},
 )
 async def readyz(
     response: Response,
@@ -50,13 +51,34 @@ async def readyz(
     try:
         await database.ping()
         checks["database"] = "ok"
+
+        # Verify database migrations are applied via Database abstraction
+        version_num = await database.check_migration_version()
+        if version_num:
+            checks["migrations"] = f"ok:{version_num}"
+        else:
+            logger.error("readiness probe failed: alembic_version table is empty")
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            checks["migrations"] = "unmigrated"
+            return HealthResponse(
+                status="degraded", environment=settings.environment, checks=checks
+            )
+
+        # Update DB pool metrics
+        pool_size, conns_in_use = database.get_pool_stats()
+        metrics.set_gauge("database_pool_size", pool_size)
+        metrics.set_gauge("database_connections_in_use", conns_in_use)
     except Exception:
-        logger.warning("readiness probe failed: the database is unreachable", exc_info=True)
+        logger.warning(
+            "readiness probe failed: the database is unreachable or unmigrated", exc_info=True
+        )
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         checks["database"] = "unreachable"
-        return HealthResponse(status="degraded", environment=settings.environment, checks=checks)
+        return HealthResponse(
+            status="degraded", environment=settings.environment, checks=checks
+        )
 
-    # Cache is an accelerator: Redis outage degrades cache without failing readiness (Section 29)
+    # Cache is an accelerator: Redis outage degrades cache without failing readiness
     try:
         cache_ok = await cache.ping()
         checks["cache"] = "ok" if cache_ok else "unreachable"
@@ -64,6 +86,18 @@ async def readyz(
         checks["cache"] = "unreachable"
 
     return HealthResponse(status="ready", environment=settings.environment, checks=checks)
+
+
+@router.get(
+    "/metrics",
+    summary="Prometheus metrics",
+    response_class=Response,
+    responses={200: {"content": {"text/plain": {}}}},
+)
+async def prometheus_metrics() -> Response:
+    """Expose Prometheus formatted metrics for scrapers."""
+    content = metrics.generate_metrics_text()
+    return Response(content=content, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 logger = logging.getLogger("arad.api.health")

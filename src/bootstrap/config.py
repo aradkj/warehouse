@@ -190,14 +190,28 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> Settings:
-        if self.is_production and (
-            self.auth_jwt_secret == "insecure-dev-secret-change-in-production-0123456789abcdef"
-            or len(self.auth_jwt_secret) < 32
-        ):
-            raise ValueError(
-                "In production, ARAD_AUTH_JWT_SECRET must be configured "
-                "with a secure key of at least 32 characters"
+        if self.is_production:
+            if not self.auth_required:
+                raise ValueError(
+                    "In production, ARAD_AUTH_REQUIRED must be set to true"
+                )
+            insecure_placeholders = (
+                "insecure-dev-secret",
+                "replace_with",
+                "change_in_production",
+                "secret-key-must-be",
+                "your_secure",
+                "placeholder",
             )
+            secret_lower = self.auth_jwt_secret.lower()
+            if (
+                len(self.auth_jwt_secret) < 32
+                or any(p in secret_lower for p in insecure_placeholders)
+            ):
+                raise ValueError(
+                    "In production, ARAD_AUTH_JWT_SECRET must be configured "
+                    "with a secure, non-placeholder key of at least 32 characters"
+                )
         return self
 
     @property

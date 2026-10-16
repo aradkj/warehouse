@@ -302,7 +302,7 @@ class TestIdempotencyOrderAndReplayAuthorization:
             cached_order_id = uuid.uuid4()
 
             # Seed a completed idempotency record and tenant directly
-            async with db.new_scope(bypass_rls=True) as seed_scope:
+            async with db.new_scope(tenant_id=str(tenant_id)) as seed_scope:
                 await seed_scope.session.execute(
                     text(
                         "INSERT INTO tenants ("
@@ -847,7 +847,8 @@ class TestSqlAlchemyCatalogSearchReaderRLSConsistency:
             prod_b_id = str(uuid.uuid4())
 
             # Seed products for Tenant A and Tenant B
-            async with db.new_scope(bypass_rls=True) as seed_scope:
+            # Seed tenants (un-scoped)
+            async with db.new_scope() as seed_scope:
                 await seed_scope.session.execute(
                     text(
                         "INSERT INTO tenants ("
@@ -867,31 +868,37 @@ class TestSqlAlchemyCatalogSearchReaderRLSConsistency:
                         },
                     ],
                 )
-                await seed_scope.session.execute(
+                await seed_scope.commit()
+
+            # Seed Tenant A product under Tenant A scope
+            async with db.new_scope(tenant_id=tenant_a) as scope_a:
+                await scope_a.session.execute(
                     text(
                         "INSERT INTO products ("
                         "  id, tenant_id, slug, name, description, status, attributes, "
                         "  version, created_at, updated_at"
                         ") VALUES ("
-                        "  :id, :tenant_id, :slug, :name, '', 'ACTIVE', '{}', 1, now(), now()"
+                        "  :id, :tenant_id, 'prod-a', 'Product A', '', 'ACTIVE', '{}', 1, now(), now()"
                         ")"
                     ),
-                    [
-                        {
-                            "id": uuid.UUID(prod_a_id),
-                            "tenant_id": uuid.UUID(tenant_a),
-                            "slug": "prod-a",
-                            "name": "Product A",
-                        },
-                        {
-                            "id": uuid.UUID(prod_b_id),
-                            "tenant_id": uuid.UUID(tenant_b),
-                            "slug": "prod-b",
-                            "name": "Product B",
-                        },
-                    ],
+                    {"id": uuid.UUID(prod_a_id), "tenant_id": uuid.UUID(tenant_a)},
                 )
-                await seed_scope.commit()
+                await scope_a.commit()
+
+            # Seed Tenant B product under Tenant B scope
+            async with db.new_scope(tenant_id=tenant_b) as scope_b:
+                await scope_b.session.execute(
+                    text(
+                        "INSERT INTO products ("
+                        "  id, tenant_id, slug, name, description, status, attributes, "
+                        "  version, created_at, updated_at"
+                        ") VALUES ("
+                        "  :id, :tenant_id, 'prod-b', 'Product B', '', 'ACTIVE', '{}', 1, now(), now()"
+                        ")"
+                    ),
+                    {"id": uuid.UUID(prod_b_id), "tenant_id": uuid.UUID(tenant_b)},
+                )
+                await scope_b.commit()
 
             # 1. Fetch document under Tenant A
             doc_a = await reader.get_search_document(tenant_id=tenant_a, product_id=prod_a_id)

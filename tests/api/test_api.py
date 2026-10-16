@@ -69,6 +69,34 @@ class TestHealth:
         response = await client.get("/healthz", headers={seed.CORRELATION_HEADER: "corr-123456"})
         assert response.headers["X-Correlation-Id"] == "corr-123456"
 
+    async def test_w3c_traceparent_header_is_supported_and_echoed(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        response = await client.get("/healthz", headers={"traceparent": traceparent})
+        assert response.headers.get("traceparent") == traceparent
+
+    async def test_prometheus_metrics_endpoint_is_exposed(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        # Generate some traffic first
+        await client.get("/healthz")
+        response = await client.get("/metrics")
+        assert response.status_code == 200
+        assert "text/plain" in response.headers["content-type"]
+        text = response.text
+        assert "http_requests_total" in text
+        assert "http_request_duration_seconds" in text
+
+    async def test_readyz_reports_migrations_status(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/readyz")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["checks"]["database"] == "ok"
+        assert body["checks"]["migrations"].startswith("ok:")
+
 
 class TestCatalogApi:
     async def test_create_and_read_back_a_product(self, client: httpx.AsyncClient) -> None:

@@ -199,6 +199,9 @@ async def assign_role(
         )
     )
     apply_outcome(response, outcome)
+    from bootstrap.dependencies import invalidate_tenant_membership_cache
+
+    invalidate_tenant_membership_cache(user_id=outcome.view.user_id, tenant_id=context.tenant_id)
     return TenantMembershipResponse.from_view(outcome.view)
 
 
@@ -227,6 +230,9 @@ async def revoke_role(
         )
     )
     apply_outcome(response, outcome)
+    from bootstrap.dependencies import invalidate_tenant_membership_cache
+
+    invalidate_tenant_membership_cache(user_id=outcome.view.user_id, tenant_id=context.tenant_id)
     return TenantMembershipResponse.from_view(outcome.view)
 
 
@@ -263,6 +269,9 @@ async def create_policy(
         )
     )
     apply_outcome(response, outcome)
+    from identity.application.authorization import invalidate_policy_cache
+
+    invalidate_policy_cache(context.tenant_id)
     return PolicyResponse.from_view(outcome.view)
 
 
@@ -329,6 +338,9 @@ async def update_policy_status(
         )
     )
     apply_outcome(response, outcome)
+    from identity.application.authorization import invalidate_policy_cache
+
+    invalidate_policy_cache(context.tenant_id)
     return PolicyResponse.from_view(outcome.view)
 
 

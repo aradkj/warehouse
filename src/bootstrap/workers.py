@@ -25,46 +25,58 @@ logger = logging.getLogger(__name__)
 
 
 async def _run_expire_reservations() -> int:
-    """Execute reservation expiration sweep using application layer."""
+    """Execute reservation expiration sweep using application layer per active tenant."""
+    from sqlalchemy import text
+
     from identity.domain.principal import Principal
 
     settings = get_settings()
     database = Database(settings.database_url)
     try:
-        scope = database.new_scope(bypass_rls=True)
-        use_cases = build_use_cases(
-            settings=settings,
-            clock=SystemClock(),
-            scope=scope,
-        )
+        # Enumerate active tenants without bypass (tenants table is global, un-scoped)
+        async with database.new_scope() as list_scope:
+            res = await list_scope.session.execute(
+                text("SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY created_at ASC")
+            )
+            active_tenant_ids = [row[0] for row in res.fetchall()]
 
-        principal = Principal(
-            id="worker:reservation-sweeper",
-            type=ActorType.SYSTEM,
-            active_tenant_id=None,
-            roles=("system",),
-            permissions=frozenset({"*", "inventory.expire"}),
-        )
+        total_expired = 0
+        for tid in active_tenant_ids:
+            # Process each tenant strictly within its own isolated transaction and RLS context
+            async with database.new_scope(tenant_id=str(tid)) as tenant_scope:
+                use_cases = build_use_cases(
+                    settings=settings,
+                    clock=SystemClock(),
+                    scope=tenant_scope,
+                )
+                principal = Principal(
+                    id="worker:reservation-sweeper",
+                    type=ActorType.SYSTEM,
+                    active_tenant_id=tid,
+                    roles=("system",),
+                    permissions=frozenset({"*", "inventory.expire"}),
+                )
+                context = RequestContext(
+                    tenant_id=tid,
+                    actor_id="worker:reservation-sweeper",
+                    actor_type=ActorType.SYSTEM,
+                    correlation_id=str(uuid.uuid4()),
+                    received_at=datetime.now(UTC),
+                    principal=principal,
+                )
+                command = ExpireReservationsCommand(
+                    context=context,
+                    limit=settings.reservation_expiry_batch_size,
+                )
+                outcome = await use_cases.expire_reservations(command)
+                expired_count = outcome.view
+                if expired_count > 0:
+                    total_expired += expired_count
+                await tenant_scope.commit()
 
-        context = RequestContext(
-            tenant_id=None,
-            actor_id="worker:reservation-sweeper",
-            actor_type=ActorType.SYSTEM,
-            correlation_id=str(uuid.uuid4()),
-            received_at=datetime.now(UTC),
-            principal=principal,
-        )
-
-        command = ExpireReservationsCommand(
-            context=context,
-            limit=settings.reservation_expiry_batch_size,
-        )
-
-        outcome = await use_cases.expire_reservations(command)
-        expired_count = outcome.view
-        if expired_count > 0:
-            logger.info("Reservation sweeper expired %d reservations.", expired_count)
-        return expired_count
+        if total_expired > 0:
+            logger.info("Reservation sweeper expired %d reservations total.", total_expired)
+        return total_expired
     finally:
         await database.dispose()
 

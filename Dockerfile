@@ -78,9 +78,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
 
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y curl ca-certificates gnupg \
+ && install -d /etc/apt/keyrings \
+ && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install --no-install-recommends -y postgresql-client-17 \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 
+COPY --from=builder /opt/venv /opt/venv
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY tests ./tests
@@ -89,9 +99,7 @@ COPY scripts ./scripts
 COPY alembic.ini ./
 
 
-RUN python -m venv /opt/venv \
- && pip install --upgrade --default-timeout=100 pip \
- && pip install --default-timeout=100 ".[dev]"
+RUN pip install --default-timeout=100 ".[dev]"
 
 
 CMD ["pytest", "-q"]

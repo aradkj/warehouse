@@ -121,8 +121,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "SLF001"]
+"tests/**" = ["S", "SLF001", "E501"]
 "migrations/**" = ["E501", "N999"]
+"scripts/**" = ["S", "E501", "E402", "RUF005"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

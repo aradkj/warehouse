@@ -11,6 +11,7 @@ from audit.ports import AuditEntry, AuditPort
 from identity.domain.decision import (
     AuthorizationDecision,
     AuthorizationRequest,
+    DecisionReason,
 )
 from identity.domain.evaluator import PolicyEvaluator
 from identity.domain.permission import ALL_PERMISSIONS
@@ -25,17 +26,45 @@ from shared.domain.identifiers import TenantId, UserId
 logger = logging.getLogger(__name__)
 
 
+_policy_cache: dict[TenantId, tuple[float, Sequence[AccessPolicy]]] = {}
+_POLICY_CACHE_TTL_SECONDS: float = 30.0
+
+
+def invalidate_policy_cache(tenant_id: TenantId | None = None) -> None:
+    """Clear cached policies for a tenant or globally across the local process.
+
+    Note on multi-worker architectures:
+    In multi-worker deployments (e.g. Uvicorn worker clusters or container replicas),
+    in-process cache invalidation clears cached policies within the local worker process.
+    Peer worker processes will reload policies upon expiry of the short-lived bounded
+    TTL (_POLICY_CACHE_TTL_SECONDS = 30.0s). For instant cross-worker invalidation without
+    TTL lag, distributed pub/sub or Redis cache invalidation is required.
+    """
+    if tenant_id is not None:
+        _policy_cache.pop(tenant_id, None)
+    else:
+        _policy_cache.clear()
+
+
 class ApplicationAuthorizationService(AuthorizationPort):
     """Central authorization service combining RBAC role resolution and ABAC policies."""
 
     def __init__(
         self,
         *,
-        uow_factory: Callable[[], IdentityUnitOfWork],
+        uow_factory: Callable[..., IdentityUnitOfWork],
         audit: AuditPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._audit = audit
+
+    def _uow(self, tenant_id: TenantId | None = None) -> IdentityUnitOfWork:
+        import inspect
+
+        sig = inspect.signature(self._uow_factory)
+        if len(sig.parameters) > 0:
+            return self._uow_factory(tenant_id)
+        return self._uow_factory()
 
     async def get_effective_permissions(
         self,
@@ -52,7 +81,7 @@ class ApplicationAuthorizationService(AuthorizationPort):
                 return principal.permissions
 
             # Otherwise, look up service account in database
-            async with self._uow_factory() as uow:
+            async with self._uow(principal.active_tenant_id) as uow:
                 from shared.domain.identifiers import ServiceAccountId
 
                 try:
@@ -77,7 +106,7 @@ class ApplicationAuthorizationService(AuthorizationPort):
 
         target_tenant = tenant_id or principal.active_tenant_id
         if target_tenant is not None:
-            async with self._uow_factory() as uow:
+            async with self._uow(target_tenant) as uow:
                 try:
                     user_id = UserId(uuid.UUID(principal.id))
                     membership = await uow.memberships.get_by_user_and_tenant(
@@ -134,19 +163,73 @@ class ApplicationAuthorizationService(AuthorizationPort):
                 environment=request.environment,
             )
 
-        # Fetch active policies for tenant
+        # Fetch active policies for tenant (cached with short TTL for high throughput)
         policies: Sequence[AccessPolicy] = ()
         if req.tenant_id is not None:
-            async with self._uow_factory() as uow:
-                try:
-                    policies = await uow.policies.list_for_tenant(req.tenant_id, active_only=True)
-                except Exception as exc:
-                    logger.warning("Error loading policies for tenant %s: %s", req.tenant_id, exc)
+            import time
+
+            now_mono = time.monotonic()
+            cached = _policy_cache.get(req.tenant_id)
+            if cached is not None and (now_mono - cached[0]) < _POLICY_CACHE_TTL_SECONDS:
+                policies = cached[1]
+            else:
+                async with self._uow(req.tenant_id) as uow:
+                    try:
+                        policies = tuple(
+                            await uow.policies.list_for_tenant(req.tenant_id, active_only=True)
+                        )
+                        _policy_cache[req.tenant_id] = (now_mono, policies)
+                    except Exception as exc:
+                        logger.warning(
+                            "Error loading policies for tenant %s: %s", req.tenant_id, exc
+                        )
+                        # Fail closed: Never allow access if policies cannot be loaded
+                        error_decision = AuthorizationDecision.deny(
+                            req,
+                            DecisionReason.DENIED_EVALUATION_ERROR,
+                            details=f"failed to load access policies: {exc}",
+                        )
+                        if self._audit is not None:
+                            try:
+                                corr_id = req.environment.get("correlation_id")
+                                caus_id = req.environment.get("causation_id") or corr_id
+                                await self._audit.record(
+                                    AuditEntry(
+                                        audit_id=str(uuid.uuid4()),
+                                        tenant_id=str(req.tenant_id),
+                                        actor_id=req.principal_id or "anonymous",
+                                        action=req.action,
+                                        resource_type=req.resource_type,
+                                        resource_id=req.resource_id or "none",
+                                        correlation_id=corr_id,
+                                        causation_id=caus_id,
+                                        occurred_at=datetime.now(UTC),
+                                        before=None,
+                                        after={
+                                            "allowed": False,
+                                            "reason": error_decision.reason.value,
+                                            "details": error_decision.reason_details,
+                                        },
+                                    )
+                                )
+                            except Exception as audit_exc:
+                                logger.warning(
+                                    "Failed to record authorization error audit: %s", audit_exc
+                                )
+                        return error_decision
 
         decision = PolicyEvaluator.evaluate(req, policies)
 
-        # Audit recording for sensitive operations or denials
-        if self._audit is not None:
+        # Audit recording for sensitive administrative operations or any access denial
+        is_denial = not decision.allowed
+        is_sensitive = (
+            req.action.startswith("access.")
+            or req.action.startswith("identity.")
+            or ".role." in req.action
+            or ".policy." in req.action
+            or ".service_account." in req.action
+        )
+        if self._audit is not None and (is_denial or is_sensitive):
             try:
                 corr_id = req.environment.get("correlation_id")
                 caus_id = req.environment.get("causation_id") or corr_id
@@ -176,4 +259,4 @@ class ApplicationAuthorizationService(AuthorizationPort):
         return decision
 
 
-__all__ = ["ApplicationAuthorizationService"]
+__all__ = ["ApplicationAuthorizationService", "invalidate_policy_cache"]

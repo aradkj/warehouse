@@ -292,6 +292,11 @@ async def provision_membership(
         )
     )
     apply_outcome(response, outcome)
+    from bootstrap.dependencies import invalidate_tenant_membership_cache
+
+    invalidate_tenant_membership_cache(
+        user_id=outcome.view.user_id, tenant_id=outcome.view.tenant_id
+    )
     return TenantMembershipResponse.from_view(outcome.view)
 
 

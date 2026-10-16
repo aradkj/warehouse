@@ -35,28 +35,51 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      - name: Verify dependency consistency
+        run: pip check
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/ migrations/ scripts/
+
       - name: Ruff lint
         run: ruff check src/ tests/ migrations/ scripts/
 
       - name: Mypy type checking
         run: mypy src/
 
+      
+      - name: Validate Production Docker Compose configuration
+        env:
+          ARAD_AUTH_JWT_SECRET: "ci-validation-secret-key-must-be-at-least-32-chars-long"
+          POSTGRES_PASSWORD: "ci-postgres-validation-password"
+          ARAD_APP_DB_PASSWORD: "ci-app-validation-password"
+          RABBITMQ_PASSWORD: "ci-rabbitmq-validation-password"
+          ARAD_DATABASE_URL: "postgresql+asyncpg://arad:arad@postgres:5432/arad"
+          ARAD_RABBITMQ_URL: "amqp://arad:arad@rabbitmq:5672/"
+          ARAD_REDIS_URL: "redis://redis:6379/0"
+          ARAD_ELASTICSEARCH_URL: "http://elasticsearch:9200"
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+
   docker-tests:
-    name: Integration and Test Suite
+    name: Integration, Concurrency, and Recovery Suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify Docker Compose configuration
+      - name: Verify Test Docker Compose configuration
         run: docker compose --profile test config --quiet
 
       - name: Build test and migration images
         run: docker compose --profile test build test-migrate test
 
-      - name: Run complete test suite
+      - name: Run complete test suite (Unit, Concurrency, Failures, and Invariants)
         run: docker compose --profile test run --rm test
+
+      - name: Verify Disaster Recovery Backup and Restoration
+        run: docker compose --profile test run --rm test pytest tests/integration/test_backup_restore.py -v
 
       - name: Build runtime image
         if: success()

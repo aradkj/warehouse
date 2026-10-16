@@ -1,0 +1,312 @@
+# Production Docker Compose Configuration (Phase 5 Workstream E & F)
+# Least-privilege hardened deployment configuration for the Arad Platform.
+
+name: arad-prod
+
+services:
+
+  # ----------------------------------------------------
+  # PostgreSQL (System of Record)
+  # ----------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arad}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
+      POSTGRES_DB: ${POSTGRES_DB:-arad}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-prod-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arad} -d ${POSTGRES_DB:-arad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------
+  # RabbitMQ Message Broker
+  # ----------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-arad}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RabbitMQ password required}
+    volumes:
+      - rabbitmq-prod-data:/var/lib/rabbitmq
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # Redis Cache & Coordination
+  # ----------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------
+  # Elasticsearch Search Projection
+  # ----------------------------------------------------
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es-prod-data:/usr/share/elasticsearch/data
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ----------------------------------------------------
+  # Production Migration Runner
+  # ----------------------------------------------------
+  migrate:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: "no"
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arad}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_ENVIRONMENT: production
+    command: ["alembic", "upgrade", "head"]
+    networks:
+      - backend
+
+  # ----------------------------------------------------
+  # API Service
+  # ----------------------------------------------------
+  api:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: unless-stopped
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+      ARAD_LOG_JSON: "true"
+      ARAD_REDIS_URL: redis://redis:6379/0
+      ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
+      ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
+      ARAD_AUTH_REQUIRED: "true"
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------
+  # Outbox Relay Worker
+  # ----------------------------------------------------
+  outbox-relay:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: unless-stopped
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      ARAD_ENVIRONMENT: production
+    command: ["python", "-m", "bootstrap.workers", "relay"]
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # ----------------------------------------------------
+  # Search Consumer Worker
+  # ----------------------------------------------------
+  search-consumer:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: unless-stopped
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
+      ARAD_ENVIRONMENT: production
+    command: ["python", "-m", "bootstrap.workers", "search-consumer"]
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # ----------------------------------------------------
+  # Celery Background Worker
+  # ----------------------------------------------------
+  worker:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: unless-stopped
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      ARAD_REDIS_URL: redis://redis:6379/0
+      ARAD_ENVIRONMENT: production
+    command: ["celery", "-A", "bootstrap.celery_app", "worker", "--loglevel=INFO"]
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 768M
+
+networks:
+  backend:
+    driver: bridge
+    internal: false
+
+volumes:
+  postgres-prod-data:
+  rabbitmq-prod-data:
+  es-prod-data:

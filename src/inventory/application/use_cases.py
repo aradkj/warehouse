@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import Any
 
 from inventory.application.commands import (
     AdjustInventoryCommand,
@@ -476,7 +476,6 @@ class ExpireReservations(UseCase[ExpireReservationsCommand, int, InventoryUnitOf
     permission = "inventory.expire"
     resource_type = "reservations"
     success_status = 200
-    bypass_rls: ClassVar[bool] = True
 
     async def _execute(
         self, uow: InventoryUnitOfWork, command: ExpireReservationsCommand

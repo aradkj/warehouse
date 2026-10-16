@@ -21,4 +21,12 @@ build/
 
 # Local environment and test output
 /test-output.txt
-/.sudo_as_admin_successful
+# Database backups and checksum artifacts
+/backups/
+backups/
+*.sql.gz
+*.sql.gz.sha256
+arad_backup_*.sql
+arad_backup_*.sql.sha256
+test_cycle_*.sql
+test_cycle_*.sql.sha256

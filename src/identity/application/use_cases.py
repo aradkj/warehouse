@@ -12,7 +12,7 @@ import secrets
 import uuid
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import Any
 
 from audit.ports.audit import AuditEntry
 from identity.application.commands import (
@@ -423,11 +423,12 @@ class ListMemberships(
 ):
     """List memberships for a user, including tenant names/slugs."""
 
-    bypass_rls: ClassVar[bool] = True
-
     async def _execute(
         self, uow: IdentityUnitOfWork, command: ListMembershipsQuery
     ) -> list[TenantMembershipView]:
+        scope = getattr(uow, "_scope", None)
+        if scope is not None and hasattr(scope, "set_tenant_context"):
+            await scope.set_tenant_context(tenant_id=None, user_id=command.user_id)
         memberships = await uow.memberships.list_for_user(command.user_id)
         views: list[TenantMembershipView] = []
         for m in memberships:
@@ -671,7 +672,6 @@ class AuthenticateServiceAccount(
 
     operation = "identity.authenticate_service_account"
     success_status = 200
-    bypass_rls: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -689,6 +689,9 @@ class AuthenticateServiceAccount(
     async def _execute(
         self, uow: IdentityUnitOfWork, command: AuthenticateServiceAccountCommand
     ) -> Executed[ServiceAccountTokensView]:
+        scope = getattr(uow, "_scope", None)
+        if scope is not None and hasattr(scope, "set_tenant_context"):
+            await scope.set_tenant_context(tenant_id=None, client_id=command.client_id)
         sa = await uow.service_accounts.get_by_client_id(command.client_id)
         if sa is None:
             raise AuthenticationFailed("invalid service account credentials")
@@ -1330,6 +1333,9 @@ class CreatePolicy(UseCase[CreatePolicyCommand, PolicyView, IdentityUnitOfWork])
             now=now,
         )
         await uow.policies.add(policy)
+        from identity.application.authorization import invalidate_policy_cache
+
+        invalidate_policy_cache(command.tenant_id)
         await uow.audit.record(
             AuditEntry(
                 audit_id=str(uuid.uuid4()),
@@ -1486,6 +1492,9 @@ class UpdatePolicyStatus(UseCase[UpdatePolicyStatusCommand, PolicyView, Identity
             )
 
         await uow.policies.save(policy, expected_version=policy.version)
+        from identity.application.authorization import invalidate_policy_cache
+
+        invalidate_policy_cache(command.tenant_id)
         await uow.audit.record(
             AuditEntry(
                 audit_id=str(uuid.uuid4()),

@@ -39,7 +39,7 @@ def _alembic_config() -> Any:
     return config
 
 
-def _run_alembic(action: str, url: str) -> None:
+def _run_alembic(action: str, url: str, target: str | None = None) -> None:
     """Run an alembic command against ``url``, in a thread.
 
     ``migrations/env.py`` drives an async engine and calls ``asyncio.run`` internally,
@@ -52,9 +52,9 @@ def _run_alembic(action: str, url: str) -> None:
     os.environ["ARAD_DATABASE_URL"] = url
     try:
         if action == "upgrade":
-            command.upgrade(config, "head")
+            command.upgrade(config, target or "head")
         elif action == "downgrade":
-            command.downgrade(config, "base")
+            command.downgrade(config, target or "base")
         else:  # pragma: no cover - guard against typos
             raise AssertionError(action)
     finally:
@@ -145,7 +145,7 @@ class TestMigrations:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-        assert version == "0008_postgresql_rls"
+        assert version == "0009_harden_rls_and_roles"
 
     async def test_the_models_and_the_migration_agree(self, scratch_database: AsyncEngine) -> None:
         """Autogenerate must find no difference between metadata and the migrated schema."""
@@ -168,15 +168,39 @@ class TestMigrations:
         assert diffs == [], f"schema drift detected: {diffs}"
 
     async def test_the_migration_round_trips(self, scratch_database: AsyncEngine) -> None:
-        """``upgrade`` -> ``downgrade base`` -> ``upgrade`` leaves a usable schema."""
+        """Reversible migrations (0001-0008) can round-trip to base; 0009 safely prohibits downgrade."""
         scratch_url = str(scratch_database.url.render_as_string(hide_password=False))
-        await asyncio.to_thread(_run_alembic, "upgrade", scratch_url)
 
-        await asyncio.to_thread(_run_alembic, "downgrade", scratch_url)
+        # 1. Migrations up to 0008 can round-trip to base
+        await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "0008_postgresql_rls")
+        await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "base")
         remaining = await table_names(scratch_database)
         assert remaining == {"alembic_version"}, f"downgrade left tables behind: {remaining}"
 
-        await asyncio.to_thread(_run_alembic, "upgrade", scratch_url)
+        # 2. Upgrade to head (0009_harden_rls_and_roles)
+        await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "head")
+        assert await table_names(scratch_database) == EXPECTED_TABLES
+
+        # 3. Attempting downgrade on 0009 is strictly refused with a security exception
+        with pytest.raises(
+            RuntimeError,
+            match="Downgrading migration 0009_harden_rls_and_roles is strictly prohibited",
+        ):
+            await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "-1")
+
+        # 4. Schema, version, and policies remain consistent and secure after rejected downgrade
+        async with scratch_database.connect() as connection:
+            version = (
+                await connection.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar()
+            assert version == "0009_harden_rls_and_roles"
+
+            # Verify no policies retain bypass_rls
+            result = await connection.execute(
+                text("SELECT policyname FROM pg_policies WHERE qual ILIKE '%bypass_rls%'")
+            )
+            assert result.all() == [], "Policies must not contain bypass_rls after rejected downgrade"
+
         assert await table_names(scratch_database) == EXPECTED_TABLES
 
     async def test_the_test_database_is_at_head(self, database: AsyncEngine) -> None:

@@ -277,7 +277,7 @@ class RedisCacheAdapter(CachePort):
 
         # 3. Lock not acquired: another process is populating cache. Wait and poll briefly.
         max_wait_seconds = 1.5
-        poll_interval = 0.05
+        poll_interval = 0.005
         elapsed = 0.0
 
         while elapsed < max_wait_seconds:

@@ -21,6 +21,7 @@ identical whether a use case is called from HTTP or from another context.
 from __future__ import annotations
 
 import logging
+import uuid
 from types import TracebackType
 from typing import Self
 
@@ -81,18 +82,48 @@ class Database:
         async with self._engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
 
+    async def check_migration_version(self) -> str | None:
+        """Query the applied Alembic migration revision or return None."""
+        from sqlalchemy import text
+
+        async with self._engine.connect() as connection:
+            res = await connection.execute(
+                text("SELECT version_num FROM alembic_version LIMIT 1")
+            )
+            row = res.first()
+            if row is not None and row[0]:
+                return str(row[0])
+            return None
+
+    def get_pool_stats(self) -> tuple[float, float]:
+        """Return (pool_size, checked_out_connections)."""
+        pool = self._engine.pool
+        size_fn = getattr(pool, "size", None)
+        checked_fn = getattr(pool, "checkedout", None)
+        size = float(size_fn()) if callable(size_fn) else 0.0
+        checked = float(checked_fn()) if callable(checked_fn) else 0.0
+        return size, checked
+
     def new_scope(
         self,
         *,
         tenant_id: str | None = None,
+        user_id: str | None = None,
+        client_id: str | None = None,
         bypass_rls: bool = False,
     ) -> SqlAlchemyTransactionScope:
         """Create a fresh, per-request transaction scope."""
         return SqlAlchemyTransactionScope(
             self._session_factory,
             tenant_id=tenant_id,
+            user_id=user_id,
+            client_id=client_id,
             bypass_rls=bypass_rls,
         )
+
+
+class RoleSwitchError(RuntimeError):
+    """Raised when the session cannot establish the required unprivileged runtime role."""
 
 
 class SqlAlchemyTransactionScope:
@@ -103,12 +134,13 @@ class SqlAlchemyTransactionScope:
     """
 
     __slots__ = (
-        "_bypass_rls",
+        "_client_id",
         "_depth",
         "_rollback_only",
         "_session",
         "_session_factory",
         "_tenant_id",
+        "_user_id",
     )
 
     def __init__(
@@ -116,6 +148,8 @@ class SqlAlchemyTransactionScope:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         tenant_id: str | None = None,
+        user_id: str | None = None,
+        client_id: str | None = None,
         bypass_rls: bool = False,
     ) -> None:
         self._session_factory = session_factory
@@ -123,7 +157,8 @@ class SqlAlchemyTransactionScope:
         self._depth = 0
         self._rollback_only = False
         self._tenant_id = str(tenant_id) if tenant_id is not None else None
-        self._bypass_rls = bypass_rls
+        self._user_id = str(user_id) if user_id is not None else None
+        self._client_id = str(client_id) if client_id is not None else None
 
     # -- transaction scope protocol --------------------------------------
     async def __aenter__(self) -> Self:
@@ -146,42 +181,63 @@ class SqlAlchemyTransactionScope:
         if dialect_name != "postgresql":
             return
 
-        if self._bypass_rls:
-            try:
-                await self._session.execute(text("RESET ROLE"))
-            except Exception:
-                logger.debug("Failed to RESET ROLE for bypass_rls", exc_info=True)
-            await self._session.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-        else:
-            try:
-                await self._session.execute(text("SET LOCAL ROLE arad_app"))
-            except Exception:
-                logger.debug("Failed to SET LOCAL ROLE arad_app", exc_info=True)
-            if self._tenant_id is not None:
-                await self._session.execute(
-                    text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-                    {"tid": str(self._tenant_id)},
-                )
-            else:
-                await self._session.execute(
-                    text("SELECT set_config('app.current_tenant_id', '', true)")
-                )
-                await self._session.execute(
-                    text("SELECT set_config('app.bypass_rls', 'off', true)")
-                )
+        # 1. Enforce least-privilege runtime role arad_app.
+        # Fail closed: never swallow role-switching errors.
+        try:
+            await self._session.execute(text("SET LOCAL ROLE arad_app"))
+        except Exception as exc:
+            logger.error("Failed to enforce arad_app role: %s", exc)
+            self._rollback_only = True
+            raise RoleSwitchError("Failed to establish secure runtime database role") from exc
 
-    async def set_tenant_context(self, tenant_id: object | None) -> None:
+        # 2. Establish transaction-local tenant, user, and client context.
+        # is_local=true ensures PostgreSQL automatically discards on commit/rollback.
+        tid = ""
+        if self._tenant_id:
+            try:
+                uuid.UUID(str(self._tenant_id))
+                tid = str(self._tenant_id)
+            except ValueError:
+                tid = ""
+        await self._session.execute(
+            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+            {"tid": tid},
+        )
+        uid = ""
+        if self._user_id:
+            try:
+                uuid.UUID(str(self._user_id))
+                uid = str(self._user_id)
+            except ValueError:
+                uid = ""
+        await self._session.execute(
+            text("SELECT set_config('app.current_user_id', :uid, true)"),
+            {"uid": uid},
+        )
+        cid = str(self._client_id) if self._client_id is not None else ""
+        await self._session.execute(
+            text("SELECT set_config('app.current_client_id', :cid, true)"),
+            {"cid": cid},
+        )
+
+    async def set_tenant_context(
+        self,
+        tenant_id: object | None,
+        *,
+        user_id: object | None = None,
+        client_id: object | None = None,
+    ) -> None:
         """Establish or update transaction-local tenant context for RLS."""
         self._tenant_id = str(tenant_id) if tenant_id is not None else None
-        self._bypass_rls = False
+        if user_id is not None:
+            self._user_id = str(user_id)
+        if client_id is not None:
+            self._client_id = str(client_id)
         await self._apply_rls_context()
 
     async def set_bypass_rls(self, bypass: bool = True) -> None:
-        """Explicitly configure controlled RLS bypass for trusted workers/admin."""
-        self._bypass_rls = bypass
-        if bypass:
-            self._tenant_id = None
-        await self._apply_rls_context()
+        """Deprecated: retained for interface compatibility, has no effect on RLS policies."""
+        pass
 
     async def __aexit__(
         self,
@@ -209,8 +265,9 @@ class SqlAlchemyTransactionScope:
         if self._session is None:  # pragma: no cover - programming error
             raise RuntimeError("no active transaction to commit")
         await self._session.commit()
-        # A committed scope may be reused (a second use case in the same
-        # request); the next entry opens a new transaction on the same session.
+        if self._depth > 0:
+            await self._session.begin()
+            await self._apply_rls_context()
 
     async def rollback(self) -> None:
         self._rollback_only = True
@@ -245,4 +302,4 @@ class SqlAlchemyTransactionScope:
         self._depth = 0
 
 
-__all__ = ["Database", "SqlAlchemyTransactionScope"]
+__all__ = ["Database", "RoleSwitchError", "SqlAlchemyTransactionScope"]

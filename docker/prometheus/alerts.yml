@@ -1,0 +1,56 @@
+groups:
+  - name: arad_platform_alerts
+    rules:
+      - alert: HighHttpErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate (> 1%) on API"
+          description: "Over 1% of requests are failing with 5xx status codes over the last 5 minutes. Check API logs and downstream dependencies."
+
+      - alert: HighHttpLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 HTTP latency exceeded 500ms threshold"
+          description: "P95 request latency is above 500ms for more than 3 minutes. Inspect slow database queries and connection pool saturation."
+
+      - alert: DatabasePoolSaturation
+        expr: database_connections_in_use / database_pool_size > 0.8
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool near exhaustion (> 80%)"
+          description: "More than 80% of configured PostgreSQL connections in the pool are checked out. Investigate connection leaks or long transactions."
+
+      - alert: OutboxEventsBacklog
+        expr: outbox_pending_events > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox pending event backlog growing"
+          description: "Unpublished outbox events exceeded 500 for over 5 minutes. Verify outbox relay worker health and RabbitMQ reachability."
+
+      - alert: RedisCacheFailures
+        expr: sum(rate(cache_operations_total{status="failure"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated Redis cache failure rate"
+          description: "Redis operations are failing; API is degrading to PostgreSQL queries. Check Redis process health and memory."
+
+      - alert: ApiReadinessDegraded
+        expr: up{job="arad-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API instance unreachable or readiness probe failing"
+          description: "The API instance is failing health/readiness checks. Check container status and database connectivity."
