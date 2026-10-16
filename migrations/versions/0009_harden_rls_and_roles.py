@@ -35,36 +35,65 @@ TENANT_TABLES = [
 
 
 def upgrade() -> None:
-    # 0. Ensure unprivileged runtime role arad_app has strict least-privilege flags and configured credentials
+    # 0. Ensure the runtime role has least-privilege flags and safe credentials.
     import os
+
+    import sqlalchemy as sa
 
     app_role = os.environ.get("ARAD_APP_DB_USER", "arad_app")
     app_password = os.environ.get("ARAD_APP_DB_PASSWORD") or os.environ.get(
         "POSTGRES_PASSWORD", "arad"
     )
-    escaped_password = app_password.replace("'", "''")
 
-    op.execute(f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{app_role}') THEN
-                EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT', '{app_role}', '{escaped_password}');
-            ELSE
-                EXECUTE format('ALTER ROLE %I WITH PASSWORD %L NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT', '{app_role}', '{escaped_password}');
-            END IF;
-        END $$;
-    """)
-    op.execute(f"GRANT USAGE ON SCHEMA public TO {app_role}")
-    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app_role}")
-    op.execute(f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app_role}")
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app_role}"
+    connection = op.get_bind()
+
+    role_exists = connection.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = CAST(:role AS text))"),
+        {"role": app_role},
+    ).scalar_one()
+
+    role_template = (
+        "ALTER ROLE %I WITH PASSWORD %L NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"
+        if role_exists
+        else "CREATE ROLE %I LOGIN PASSWORD %L "
+        "NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"
     )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {app_role}"
+
+    role_sql = connection.execute(
+        sa.text(
+            "SELECT format(CAST(:template AS text), CAST(:role AS text), CAST(:password AS text))"
+        ),
+        {
+            "template": role_template,
+            "role": app_role,
+            "password": app_password,
+        },
+    ).scalar_one()
+
+    op.execute(role_sql)
+
+    def execute_role_statement(template: str) -> None:
+        statement = connection.execute(
+            sa.text("SELECT format(CAST(:template AS text), CAST(:role AS text))"),
+            {"template": template, "role": app_role},
+        ).scalar_one()
+        op.execute(statement)
+
+    execute_role_statement("GRANT USAGE ON SCHEMA public TO %I")
+    execute_role_statement(
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I"
+    )
+    execute_role_statement("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %I")
+    execute_role_statement(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I"
+    )
+    execute_role_statement(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I"
     )
 
     # 1. Hardened direct tenant-owned tables (NO app.bypass_rls GUC condition)
+
     for table in TENANT_TABLES:
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation_policy ON {table}")
         op.execute(f"""
