@@ -206,3 +206,18 @@ async def test_e2e_reindex_search_and_reconciliation(
     )
     assert restored_doc is not None
     assert restored_doc["name"] == "Ceramic Coffee Mug"
+
+    # 6. REGRESSION TEST (PART A): Trigger reindex specifically scoped to tenant_a
+    # It must NOT drop tenant_b's products from the shared alias!
+    reindex_tenant_a_result = await reindex_service.reindex(tenant_id=str(tenant_a))
+    assert reindex_tenant_a_result.status == "COMPLETED"
+
+    # Tenant B's product MUST still be searchable through the shared alias!
+    res_b_after = await search_service.search(tenant_id=str(tenant_b), q="Coffee")
+    assert res_b_after.total == 1, "Tenant B product was lost during Tenant A reindex!"
+    assert res_b_after.items[0].name == "Espresso Coffee Maker"
+
+    # Tenant A's products must also be intact and searchable
+    res_a_after = await search_service.search(tenant_id=str(tenant_a), q="Coffee")
+    assert res_a_after.total == 1
+    assert res_a_after.items[0].name == "Ceramic Coffee Mug"

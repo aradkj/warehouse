@@ -182,3 +182,89 @@ async def test_reindex_failure_safety_and_rollback() -> None:
     )
     assert doc is not None
     assert doc["name"] == "Healthy Production Item"
+
+
+async def test_tenant_reindex_preserves_cross_tenant_products_on_shared_alias() -> None:
+    """Reindexing a single tenant MUST NOT wipe out other tenants' products from shared alias."""
+    indexer = InMemorySearchIndexer()
+    tenant_1 = str(uuid.uuid4())
+    tenant_2 = str(uuid.uuid4())
+
+    # Pre-existing active index with products from both tenants
+    old_index = "products-old"
+    await indexer.ensure_index(index_name=old_index, mappings={}, aliases=(PRODUCTS_INDEX_ALIAS,))
+    await indexer.index(
+        (
+            _make_doc(tenant_1, "p1", "Tenant 1 Old Widget"),
+            _make_doc(tenant_2, "p2", "Tenant 2 Critical Widget"),
+        )
+    )
+
+    # Authoritative DB has products for both tenants
+    pg_docs = [
+        _make_doc(tenant_1, "p1", "Tenant 1 Updated Widget"),
+        _make_doc(tenant_2, "p2", "Tenant 2 Critical Widget"),
+    ]
+    reader = MockCatalogSearchReader(pg_docs)
+    service = ReindexingService(indexer=indexer, reader=reader, alias=PRODUCTS_INDEX_ALIAS)
+
+    # Reindex triggered specifically for tenant_1
+    result = await service.reindex(tenant_id=tenant_1)
+    assert result.status == "COMPLETED"
+
+    # Both tenant_1 and tenant_2 products MUST be present in the new active index
+    t1_doc = await indexer.get_document(
+        index_alias=PRODUCTS_INDEX_ALIAS,
+        document_id=build_product_document_id(tenant_1, "p1"),
+    )
+    assert t1_doc is not None
+    assert t1_doc["name"] == "Tenant 1 Updated Widget"
+
+    t2_doc = await indexer.get_document(
+        index_alias=PRODUCTS_INDEX_ALIAS,
+        document_id=build_product_document_id(tenant_2, "p2"),
+    )
+    assert t2_doc is not None, "Tenant 2 product was erroneously deleted during Tenant 1 reindex!"
+    assert t2_doc["name"] == "Tenant 2 Critical Widget"
+
+
+async def test_reindex_lock_cleanup_on_ensure_index_failure() -> None:
+    """Lock must be safely released even if ensure_index raises before the bulk index loop."""
+    reader = MockCatalogSearchReader([])
+
+    class FailingIndexer(InMemorySearchIndexer):
+        async def ensure_index(self, index_name: str, mappings: dict, aliases=()) -> None:
+            raise ConnectionError("Elasticsearch cluster unreachable during index creation")
+
+    class FakeLockCache:
+        def __init__(self) -> None:
+            self.lock_held = False
+            self.token: str | None = None
+            self.released_token: str | None = None
+
+        async def acquire_lock(self, key: str, ttl: int = 600) -> str | None:
+            self.lock_held = True
+            self.token = "test-token-123"
+            return self.token
+
+        async def release_lock(self, key: str, token: str) -> bool:
+            if self.token == token:
+                self.lock_held = False
+                self.released_token = token
+                return True
+            return False
+
+    fake_cache = FakeLockCache()
+    service = ReindexingService(
+        indexer=FailingIndexer(),
+        reader=reader,
+        cache=fake_cache,  # type: ignore[arg-type]
+        alias=PRODUCTS_INDEX_ALIAS,
+    )
+
+    with pytest.raises(ConnectionError, match="Elasticsearch cluster unreachable"):
+        await service.reindex()
+
+    # CRITICAL: Lock must be released despite failure in ensure_index!
+    assert not fake_cache.lock_held
+    assert fake_cache.released_token == "test-token-123"

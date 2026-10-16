@@ -115,6 +115,14 @@ class TestAuthAPI:
         )
         seed.expect(reuse_resp, 401)
 
+        # 9b. Durability check: reuse detection must durably revoke the entire family in PostgreSQL!
+        # Even the newer unexpired token (new_refresh_token) must be rejected with 401.
+        newer_token_resp = await client.post(
+            "/v1/auth/refresh",
+            json={"refresh_token": new_refresh_token},
+        )
+        seed.expect(newer_token_resp, 401)
+
         # 10. Change Password
         change_resp = await client.post(
             "/v1/auth/change-password",

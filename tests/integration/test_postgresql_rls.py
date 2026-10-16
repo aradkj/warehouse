@@ -642,3 +642,118 @@ async def test_worker_per_tenant_reservation_expiration(database: Database) -> N
             text("SELECT reserved FROM inventory_items WHERE id = :id"), {"id": item_b_id}
         )
         assert item_res.scalar_one() == 3
+
+
+async def test_audit_logs_rls_isolation(database: Database) -> None:
+    """Audit logs must strictly isolate tenant records from cross-tenant and system access under arad_app."""
+    from sqlalchemy.exc import DBAPIError
+
+    app_url = resolve_database_url().replace("://arad:arad@", "://arad_app:arad@")
+    app_db = Database(app_url, pool_size=1)
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    audit_sys_id = uuid.uuid4()
+    audit_a_id = uuid.uuid4()
+    audit_b_id = uuid.uuid4()
+
+    try:
+        # Seed tenants using admin database
+        async with database.new_scope() as scope:
+            await scope.session.execute(
+                text(
+                    "INSERT INTO tenants (id, slug, name, status, version, created_at, updated_at) "
+                    "VALUES (:t_a, 'audit-t-a', 'Tenant A', 'ACTIVE', 1, now(), now()), "
+                    "       (:t_b, 'audit-t-b', 'Tenant B', 'ACTIVE', 1, now(), now())"
+                ),
+                {"t_a": tenant_a, "t_b": tenant_b},
+            )
+            await scope.commit()
+
+        # 1. System/unscoped context under arad_app can insert and read system audit log (tenant_id IS NULL)
+        async with app_db.new_scope() as scope:
+            await scope.session.execute(
+                text(
+                    "INSERT INTO audit_logs (id, tenant_id, actor_id, action, resource_type, resource_id, occurred_at) "
+                    "VALUES (:id, NULL, 'system', 'system.boot', 'system', 'sys-1', now())"
+                ),
+                {"id": audit_sys_id},
+            )
+            await scope.commit()
+
+        # 2. Tenant A can insert its own audit log
+        async with app_db.new_scope(tenant_id=str(tenant_a)) as scope:
+            await scope.session.execute(
+                text(
+                    "INSERT INTO audit_logs (id, tenant_id, actor_id, action, resource_type, resource_id, occurred_at) "
+                    "VALUES (:id, :t_id, 'actor-a', 'user.login', 'user', 'u-1', now())"
+                ),
+                {"id": audit_a_id, "t_id": tenant_a},
+            )
+            await scope.commit()
+
+        # 3. Tenant B can insert its own audit log
+        async with app_db.new_scope(tenant_id=str(tenant_b)) as scope:
+            await scope.session.execute(
+                text(
+                    "INSERT INTO audit_logs (id, tenant_id, actor_id, action, resource_type, resource_id, occurred_at) "
+                    "VALUES (:id, :t_id, 'actor-b', 'user.login', 'user', 'u-2', now())"
+                ),
+                {"id": audit_b_id, "t_id": tenant_b},
+            )
+            await scope.commit()
+
+        # 4. Under Tenant A scope:
+        async with app_db.new_scope(tenant_id=str(tenant_a)) as scope:
+            # Can read Tenant A audit log
+            res_a = await scope.session.execute(
+                text("SELECT id FROM audit_logs WHERE id = :id"), {"id": audit_a_id}
+            )
+            assert res_a.scalar_one_or_none() == audit_a_id
+
+            # CANNOT read Tenant B audit log
+            res_b = await scope.session.execute(
+                text("SELECT id FROM audit_logs WHERE id = :id"), {"id": audit_b_id}
+            )
+            assert res_b.scalar_one_or_none() is None
+
+            # CANNOT read system audit log
+            res_sys = await scope.session.execute(
+                text("SELECT id FROM audit_logs WHERE id = :id"), {"id": audit_sys_id}
+            )
+            assert res_sys.scalar_one_or_none() is None
+
+            # CANNOT insert null-tenant audit log (WITH CHECK violation)
+            with pytest.raises(DBAPIError):
+                await scope.session.execute(
+                    text(
+                        "INSERT INTO audit_logs (id, tenant_id, actor_id, action, resource_type, resource_id, occurred_at) "
+                        "VALUES (:id, NULL, 'actor-a', 'unauthorized.null', 'system', 'null-1', now())"
+                    ),
+                    {"id": uuid.uuid4()},
+                )
+                await scope.commit()
+
+            # CANNOT insert Tenant B audit log (WITH CHECK violation)
+            with pytest.raises(DBAPIError):
+                await scope.session.execute(
+                    text(
+                        "INSERT INTO audit_logs (id, tenant_id, actor_id, action, resource_type, resource_id, occurred_at) "
+                        "VALUES (:id, :t_id, 'actor-a', 'spoofed.b', 'order', 'ord-1', now())"
+                    ),
+                    {"id": uuid.uuid4(), "t_id": tenant_b},
+                )
+                await scope.commit()
+
+        # 5. Unscoped connection can read system logs but CANNOT read tenant audit logs
+        async with app_db.new_scope() as scope:
+            res_sys = await scope.session.execute(
+                text("SELECT id FROM audit_logs WHERE id = :id"), {"id": audit_sys_id}
+            )
+            assert res_sys.scalar_one_or_none() == audit_sys_id
+
+            res_a = await scope.session.execute(
+                text("SELECT id FROM audit_logs WHERE id = :id"), {"id": audit_a_id}
+            )
+            assert res_a.scalar_one_or_none() is None
+    finally:
+        await app_db.dispose()

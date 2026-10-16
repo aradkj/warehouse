@@ -82,7 +82,9 @@ class OutboxRelayService:
                 # Mark PUBLISHED
                 async with self._database.new_scope() as scope:
                     repo = SqlAlchemyOutboxRepository(scope.session)
-                    await repo.mark_published(event.id, now=datetime.now(UTC))
+                    await repo.mark_published(
+                        event.id, now=datetime.now(UTC), claimed_by=self._node_id
+                    )
                     await scope.commit()
                 published_count += 1
             except Exception as exc:
@@ -100,6 +102,7 @@ class OutboxRelayService:
                             error=str(exc),
                             max_attempts=self._max_attempts,
                             now=datetime.now(UTC),
+                            claimed_by=self._node_id,
                         )
                         await scope.commit()
                 except Exception as inner_exc:  # pragma: no cover

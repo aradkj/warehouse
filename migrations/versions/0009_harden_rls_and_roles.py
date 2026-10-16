@@ -35,25 +35,31 @@ TENANT_TABLES = [
 
 
 def upgrade() -> None:
-    # 0. Ensure unprivileged runtime role arad_app has strict least-privilege flags
-    op.execute("""
+    # 0. Ensure unprivileged runtime role arad_app has strict least-privilege flags and configured credentials
+    import os
+
+    app_role = os.environ.get("ARAD_APP_DB_USER", "arad_app")
+    app_password = os.environ.get("ARAD_APP_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "arad")
+    escaped_password = app_password.replace("'", "''")
+
+    op.execute(f"""
         DO $$
         BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'arad_app') THEN
-                CREATE ROLE arad_app LOGIN PASSWORD 'arad' NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{app_role}') THEN
+                EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT', '{app_role}', '{escaped_password}');
             ELSE
-                ALTER ROLE arad_app NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+                EXECUTE format('ALTER ROLE %I WITH PASSWORD %L NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT', '{app_role}', '{escaped_password}');
             END IF;
         END $$;
     """)
-    op.execute("GRANT USAGE ON SCHEMA public TO arad_app")
-    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO arad_app")
-    op.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO arad_app")
+    op.execute(f"GRANT USAGE ON SCHEMA public TO {app_role}")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app_role}")
+    op.execute(f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app_role}")
     op.execute(
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO arad_app"
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app_role}"
     )
     op.execute(
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO arad_app"
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {app_role}"
     )
 
     # 1. Hardened direct tenant-owned tables (NO app.bypass_rls GUC condition)
@@ -86,17 +92,23 @@ def upgrade() -> None:
     op.execute("ALTER TABLE roles ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE roles FORCE ROW LEVEL SECURITY")
 
-    # 3. Audit logs table (permits writing system audit entries with tenant_id IS NULL)
+    # 3. Audit logs table (strictly isolates tenant-scoped audit records from system logs)
     op.execute("DROP POLICY IF EXISTS tenant_isolation_policy ON audit_logs")
     op.execute("""
         CREATE POLICY tenant_isolation_policy ON audit_logs
             USING (
-                tenant_id IS NULL
-                OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+                CASE
+                    WHEN NULLIF(current_setting('app.current_tenant_id', true), '') IS NOT NULL
+                    THEN tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+                    ELSE tenant_id IS NULL
+                END
             )
             WITH CHECK (
-                tenant_id IS NULL
-                OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+                CASE
+                    WHEN NULLIF(current_setting('app.current_tenant_id', true), '') IS NOT NULL
+                    THEN tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+                    ELSE tenant_id IS NULL
+                END
             )
     """)
     op.execute("ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY")

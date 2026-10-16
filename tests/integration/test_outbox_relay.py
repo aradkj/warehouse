@@ -144,3 +144,87 @@ async def test_stale_claimed_events_are_recovered_by_relay(
     assert len(recovered) == 1
     assert recovered[0].id == evt_id
     assert recovered[0].claimed_by == "new-worker"
+
+
+async def test_stale_worker_failure_cannot_overwrite_newer_claim_or_published_state(
+    database_handle: Database, admin_engine: AsyncEngine
+) -> None:
+    now = datetime.now(UTC)
+    tenant_id = uuid.uuid4()
+    evt_id = uuid.uuid4()
+
+    # 1. Insert tenant and pending outbox event
+    async with database_handle.new_scope() as scope:
+        await scope.session.execute(
+            text(
+                "INSERT INTO tenants (id, slug, name, status, version) "
+                "VALUES (:id, :slug, 'Fencing Tenant', 'ACTIVE', 1)"
+            ),
+            {"id": tenant_id, "slug": f"fencing-{uuid.uuid4().hex[:6]}"},
+        )
+        await scope.session.execute(
+            text(
+                "INSERT INTO outbox_events "
+                "(id, tenant_id, event_type, schema_version, aggregate_type, aggregate_id, "
+                "payload, headers, correlation_id, occurred_at, status, available_at) "
+                "VALUES (:id, :tenant, 'FencingEvent', 1, 'order', :agg_id, "
+                "'{}'::jsonb, '{}'::jsonb, 'corr-3', :now, 'PENDING', :now)"
+            ),
+            {"id": evt_id, "tenant": tenant_id, "agg_id": evt_id, "now": now},
+        )
+        await scope.commit()
+
+    # 2. Worker A claims the event
+    async with database_handle.new_scope() as scope:
+        repo = SqlAlchemyOutboxRepository(scope.session)
+        claimed_a = await repo.claim_batch(
+            batch_size=1, claim_timeout_seconds=10.0, claimed_by="worker-A", now=now
+        )
+        await scope.commit()
+    assert len(claimed_a) == 1
+    assert claimed_a[0].claimed_by == "worker-A"
+
+    # 3. Time passes, Worker A's claim expires and Worker B re-claims the event
+    later = now + timedelta(seconds=15)
+    async with database_handle.new_scope() as scope:
+        repo = SqlAlchemyOutboxRepository(scope.session)
+        claimed_b = await repo.claim_batch(
+            batch_size=1, claim_timeout_seconds=10.0, claimed_by="worker-B", now=later
+        )
+        await scope.commit()
+    assert len(claimed_b) == 1
+    assert claimed_b[0].claimed_by == "worker-B"
+
+    # 4. Worker B successfully publishes and records success
+    publish_time = later + timedelta(seconds=1)
+    async with database_handle.new_scope() as scope:
+        repo = SqlAlchemyOutboxRepository(scope.session)
+        updated = await repo.mark_published(evt_id, now=publish_time, claimed_by="worker-B")
+        await scope.commit()
+    assert updated is True
+
+    # Verify event is PUBLISHED
+    status = await scalar(
+        admin_engine, "SELECT status FROM outbox_events WHERE id = :id", id=evt_id
+    )
+    assert status == "PUBLISHED"
+
+    # 5. Stale Worker A wakes up and attempts to record failure with its old claim
+    stale_time = publish_time + timedelta(seconds=1)
+    async with database_handle.new_scope() as scope:
+        repo = SqlAlchemyOutboxRepository(scope.session)
+        updated_a = await repo.record_failure(
+            evt_id,
+            error="Worker A network timeout",
+            max_attempts=3,
+            now=stale_time,
+            claimed_by="worker-A",
+        )
+        await scope.commit()
+    assert updated_a is False
+
+    # 6. Verify event state was NOT overwritten by stale Worker A and remains PUBLISHED
+    status_after = await scalar(
+        admin_engine, "SELECT status FROM outbox_events WHERE id = :id", id=evt_id
+    )
+    assert status_after == "PUBLISHED"

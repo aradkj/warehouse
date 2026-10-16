@@ -287,6 +287,58 @@ class TestOrderLifecycle:
         assert shop.stock_of() == (2, 2, 0)
         assert reservation.status is ReservationStatus.ACTIVE
 
+    async def test_confirming_order_with_expired_reservation_is_refused(self) -> None:
+        """ConfirmOrder must reject confirmation if the reservation has expired."""
+        from inventory.domain.errors import ReservationExpired
+
+        shop = await _build_shop(on_hand=2)
+        submitted = await shop.app.use_cases.create_order(order_command(shop, 4))
+        assert submitted.view.status is OrderStatus.BACKORDERED
+
+        order = shop.app.stores.orders[submitted.view.id]
+        res = shop.reservations_of()[0]
+        order.mark_inventory_reserved(reservation_id=res.id, now=shop.app.clock.now())
+        shop.app.stores.versions[order.id] = order.version
+
+        # Advance clock past reservation expiry
+        shop.app.clock.advance(DEFAULT_TTL_SECONDS + 10)
+
+        # Attempt confirmation against expired reservation must fail
+        with pytest.raises(ReservationExpired, match="expired and can no longer confirm order"):
+            await shop.app.use_cases.confirm_order(
+                ConfirmOrderCommand(
+                    tenant_id=shop.tenant_id,
+                    context=shop.with_context(idempotency_key="confirm-expired"),
+                    order_id=submitted.view.id,
+                )
+            )
+
+    async def test_confirming_order_with_released_reservation_is_refused(self) -> None:
+        """ConfirmOrder must reject confirmation if the reservation was released."""
+        from inventory.domain.errors import InvalidReservationTransition
+
+        shop = await _build_shop(on_hand=2)
+        submitted = await shop.app.use_cases.create_order(order_command(shop, 4))
+        assert submitted.view.status is OrderStatus.BACKORDERED
+
+        order = shop.app.stores.orders[submitted.view.id]
+        res = shop.reservations_of()[0]
+        order.mark_inventory_reserved(reservation_id=res.id, now=shop.app.clock.now())
+        shop.app.stores.versions[order.id] = order.version
+
+        # Release the reservation
+        res.release(reason="cancelled", now=shop.app.clock.now())
+
+        # Attempt confirmation against released reservation must fail
+        with pytest.raises(InvalidReservationTransition, match="cannot move to CONFIRMED"):
+            await shop.app.use_cases.confirm_order(
+                ConfirmOrderCommand(
+                    tenant_id=shop.tenant_id,
+                    context=shop.with_context(idempotency_key="confirm-released"),
+                    order_id=submitted.view.id,
+                )
+            )
+
     async def test_cancellation_is_idempotent(self) -> None:
         shop = await _build_shop(on_hand=1)
         submitted = await shop.app.use_cases.create_order(order_command(shop, 4))

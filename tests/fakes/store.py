@@ -165,6 +165,7 @@ class FakeTransactionScope:
         if self._depth > 1:
             return  # participation: the owner commits
         self._committed = True
+        self._snapshot = self.stores.snapshot()
 
     async def rollback(self) -> None:
         self._rollback_only = True

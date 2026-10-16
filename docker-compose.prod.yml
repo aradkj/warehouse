@@ -131,6 +131,8 @@ services:
     environment:
       ARAD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arad}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_ENVIRONMENT: production
+      ARAD_APP_DB_USER: ${ARAD_APP_DB_USER:-arad_app}
+      ARAD_APP_DB_PASSWORD: ${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}
     command: ["alembic", "upgrade", "head"]
     networks:
       - backend

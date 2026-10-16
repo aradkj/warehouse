@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "arad-platform"
 version = "0.1.0"
-description = "Distributed Order and Inventory Orchestration Platform - Phase 1 (modular monolith, hexagonal architecture)"
+description = "Distributed Order and Inventory Orchestration Platform (modular monolith, hexagonal architecture)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

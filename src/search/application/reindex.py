@@ -85,17 +85,24 @@ class ReindexingService:
                     f"Reindexing currently in progress for alias '{self._alias}'"
                 )
 
-        # 1. Create new index with deterministic mappings
-        await self._indexer.ensure_index(
-            index_name=new_index_name,
-            mappings=PRODUCTS_INDEX_MAPPINGS,
-        )
-
         total_indexed = 0
         try:
+            # 1. Create new index with deterministic mappings
+            await self._indexer.ensure_index(
+                index_name=new_index_name,
+                mappings=PRODUCTS_INDEX_MAPPINGS,
+            )
+
             # 2. Stream from PostgreSQL and bulk index in batches
+            # SAFETY INVARIANT (Cross-tenant data loss prevention):
+            # The products alias is a shared global read-model alias across all tenants.
+            # Replacing the shared alias with an index populated by only a single tenant would
+            # wipe out all other tenants' searchable documents upon alias switch.
+            # Therefore, when reindexing the shared products alias, the replacement index is
+            # populated with all authoritative tenant documents from PostgreSQL.
+            stream_tenant = None if self._alias == PRODUCTS_INDEX_ALIAS else tenant_id
             async for batch in self._reader.stream_search_documents(
-                tenant_id=tenant_id,
+                tenant_id=stream_tenant,
                 target_alias=new_index_name,
                 batch_size=self._batch_size,
             ):
@@ -113,10 +120,12 @@ class ReindexingService:
             await self._indexer.refresh_index(index_name=new_index_name)
 
             # 4. Validate indexing count
-            expected_count = await self._reader.count_authoritative_products(tenant_id=tenant_id)
+            expected_count = await self._reader.count_authoritative_products(
+                tenant_id=stream_tenant
+            )
             actual_count = await self._indexer.count_documents(
                 index_or_alias=new_index_name,
-                tenant_id=tenant_id,
+                tenant_id=stream_tenant,
             )
 
             if actual_count < expected_count:

@@ -341,6 +341,7 @@ class RefreshToken(UseCase[RefreshTokenCommand, AuthTokensView, IdentityUnitOfWo
         # Reuse detection: if a revoked or already rotated session is used, revoke the whole family
         if session.is_revoked or session.rotated_at is not None:
             await uow.sessions.revoke_family(session.family_id)
+            await uow.commit()
             raise AuthenticationFailed("refresh token reuse detected; family revoked")
 
         if session.is_expired(now):

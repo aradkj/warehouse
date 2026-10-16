@@ -3,7 +3,7 @@
 [![CI Quality & Test Suite](https://github.com/aradkj/warehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/aradkj/warehouse/actions/workflows/ci.yml)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type Checker: Mypy](https://img.shields.io/badge/type%20checker-mypy-blue.svg)](https://mypy-lang.org/)
-[![Test Suite: 536 Passed](https://img.shields.io/badge/tests-536%20passed-brightgreen.svg)]()
+[![Test Suite: 561 Passed](https://img.shields.io/badge/tests-561%20passed-brightgreen.svg)]()
 [![Phase: 1-5 Complete](https://img.shields.io/badge/phase-1--5%20complete-success.svg)]()
 
 Production-grade, multi-tenant distributed orchestration platform coordinating orders, atomic inventory reservations across multiple warehouses, external carrier fulfillment, near-real-time search projections, and attribute-based access control (ABAC).

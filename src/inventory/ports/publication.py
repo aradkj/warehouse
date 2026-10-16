@@ -15,6 +15,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from inventory.domain.allocation import AllocationStrategy
+from inventory.domain.errors import InvalidReservationTransition, ReservationExpired
 from inventory.domain.reservation import Reservation
 from inventory.domain.value_objects import (
     ReservationAllocation,
@@ -216,9 +217,12 @@ class InventoryOperations(Protocol):
 __all__ = [
     "AllocationStrategy",
     "AllocationView",
+    "InvalidReservationTransition",
     "InventoryOperations",
+    "ReservationExpired",
     "ReservationOutcome",
     "ReservationRequest",
+    "ReservationStatus",
     "ReservationView",
     "ShortfallView",
     "StockRequirement",

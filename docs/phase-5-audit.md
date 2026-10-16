@@ -10,7 +10,7 @@
 - **Authoritative Specifications**: `docs/specification.md` and Phase 5 Production Hardening requirements.
 - **Test Baseline vs Final Results**:
   - Baseline (Initial Phase 5 Report): 536 passed, 1 skipped (`test_backup_and_restore_cycle_maintains_integrity_and_invariants` skipped due to missing PostgreSQL client utility on PATH).
-  - Final Post-Remediation: **537 passed, 0 skipped, 0 failed** in 152.06s.
+  - Final Post-Remediation: **561 passed, 0 skipped, 0 failed** in 146.61s.
   - Static Analysis (`ruff check src/`): **Clean** (0 lint violations).
   - Static Typing (`mypy src/`): **Clean** (0 errors across 212 source files).
   - Production Compose (`docker compose -f docker-compose.prod.yml config --quiet`): **Valid** (enforces required secrets, non-root, read-only root filesystems, dropped capabilities).
@@ -33,7 +33,7 @@
 | **Automated Backup, Restore & Disaster Recovery**<br>(Phase 5 Workstream G) | `scripts/backup_postgres.py`<br>`scripts/restore_postgres.py`<br>`tests/integration/test_backup_restore.py` | `pytest tests/integration/test_backup_restore.py -v` | Executed genuine backup using `pg_dump` 17.11 against PostgreSQL 17; SHA-256 hash verified; isolated restore into `test_restore_*` database via `psql`; verified Alembic version and non-negative stock invariant. Passed in 6.41s. | None. Verification gap completely eliminated. | Added `postgresql-client-17` to test Dockerfile; updated `restore_postgres.py` to use local `psql` binary; resolved database host in integration test. | **PASS** |
 | **Container & Supply-Chain Hardening**<br>(`docs/specification.md` §19) | `Dockerfile`<br>`docker-compose.prod.yml`<br>`src/bootstrap/config.py` | `docker compose -f docker-compose.prod.yml config --quiet` | Multi-stage Dockerfile; non-root user (`1001:1001`); `read_only: true`; `cap_drop: [ALL]`; `no-new-privileges: true`; mandatory secrets enforced (missing password/secret halts startup with code 1). | None. | Verified runtime and configuration parsing constraints. | **PASS** |
 | **CI/CD Quality Gates Integrity**<br>(Phase 5 Workstream I) | `.github/workflows/ci.yml` | Inspected `.github/workflows/ci.yml` syntax and steps | Pipeline executes lint (`ruff check`), formatting (`ruff format --check`), typecheck (`mypy`), production compose validation, full test suite with services, and backup/restore cycle. | Remote GitHub Actions execution depends on remote repository runners. Local execution verified 100%. | Included `postgresql-client-17` in CI test environment. | **PASS** |
-| **Phase 1–4 Regression Safety**<br>(Phase 5 Safety Requirement) | Entire test suite (`tests/`) | `pytest` inside test container | **537 passed, 0 skipped, 0 failed** (duration 152.06s). Pre-existing tests intact, no weakened assertions. | None. | Zero regressions introduced. | **PASS** |
+| **Phase 1–4 Regression Safety**<br>(Phase 5 Safety Requirement) | Entire test suite (`tests/`) | `pytest` inside test container | **561 passed, 0 skipped, 0 failed** (duration 146.61s). Pre-existing tests intact, no weakened assertions. | None. | Zero regressions introduced. | **PASS** |
 
 ---
 

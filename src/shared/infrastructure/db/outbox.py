@@ -222,11 +222,29 @@ class SqlAlchemyOutboxRepository:
             for row in updated_rows
         )
 
-    async def mark_published(self, event_id: uuid.UUID, *, now: datetime) -> None:
-        """Mark an event as successfully published to RabbitMQ."""
+    async def mark_published(
+        self,
+        event_id: uuid.UUID,
+        *,
+        now: datetime,
+        claimed_by: str | None = None,
+    ) -> bool:
+        """Mark an event as successfully published to RabbitMQ.
+
+        If claimed_by is provided, conditionally updates only if the event is still
+        in status 'CLAIMED' and owned by claimed_by. Returns True if updated, False otherwise.
+        """
+        conditions = [outbox_events.c.id == event_id]
+        if claimed_by is not None:
+            conditions.extend(
+                [
+                    outbox_events.c.status == "CLAIMED",
+                    outbox_events.c.claimed_by == claimed_by,
+                ]
+            )
         stmt = (
             update(outbox_events)
-            .where(outbox_events.c.id == event_id)
+            .where(*conditions)
             .values(
                 status="PUBLISHED",
                 published_at=now,
@@ -234,8 +252,10 @@ class SqlAlchemyOutboxRepository:
                 claimed_by=None,
                 updated_at=now,
             )
+            .returning(outbox_events.c.id)
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def record_failure(
         self,
@@ -244,15 +264,35 @@ class SqlAlchemyOutboxRepository:
         error: str,
         max_attempts: int,
         now: datetime,
+        claimed_by: str | None = None,
         backoff_seconds: float = 1.0,
         max_delay_seconds: float = 60.0,
         jitter_seconds: float = 0.5,
-    ) -> None:
+    ) -> bool:
         """Record publication failure; retry with backoff and jitter or mark FAILED
         if max_attempts reached.
+
+        If claimed_by is provided, ensures only the worker holding the current active claim
+        can record failure. If the claim expired or was taken by another worker or already
+        published, this update safely becomes a no-op and returns False.
         """
-        stmt = select(outbox_events.c.attempt_count).where(outbox_events.c.id == event_id)
-        current_attempts = (await self._session.execute(stmt)).scalar_one_or_none() or 1
+        query_conditions = [outbox_events.c.id == event_id]
+        if claimed_by is not None:
+            query_conditions.extend(
+                [
+                    outbox_events.c.status == "CLAIMED",
+                    outbox_events.c.claimed_by == claimed_by,
+                ]
+            )
+        stmt = select(outbox_events.c.attempt_count).where(*query_conditions)
+        current_attempts = (await self._session.execute(stmt)).scalar_one_or_none()
+        if current_attempts is None:
+            logger.warning(
+                "Stale worker %s lost claim for outbox event %s; failure ignored",
+                claimed_by,
+                event_id,
+            )
+            return False
 
         if current_attempts >= max_attempts:
             new_status = "FAILED"
@@ -265,9 +305,18 @@ class SqlAlchemyOutboxRepository:
             delay = max(0.0, delay)
             available_at = now + timedelta(seconds=delay)
 
+        update_conditions = [outbox_events.c.id == event_id]
+        if claimed_by is not None:
+            update_conditions.extend(
+                [
+                    outbox_events.c.status == "CLAIMED",
+                    outbox_events.c.claimed_by == claimed_by,
+                ]
+            )
+
         update_stmt = (
             update(outbox_events)
-            .where(outbox_events.c.id == event_id)
+            .where(*update_conditions)
             .values(
                 status=new_status,
                 available_at=available_at,
@@ -276,8 +325,10 @@ class SqlAlchemyOutboxRepository:
                 claimed_by=None,
                 updated_at=now,
             )
+            .returning(outbox_events.c.id)
         )
-        await self._session.execute(update_stmt)
+        result = await self._session.execute(update_stmt)
+        return result.scalar_one_or_none() is not None
 
 
 __all__ = [

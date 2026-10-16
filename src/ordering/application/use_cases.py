@@ -293,6 +293,49 @@ class ConfirmOrder(UseCase[ConfirmOrderCommand, OrderView, OrderingUnitOfWork]):
                 reservation_id=reservation.id if reservation is not None else None, now=now
             )
 
+        if reservation is not None:
+            res_order_id = getattr(reservation, "order_id", None)
+            if res_order_id is not None and res_order_id != order.id:
+                from shared.application.errors import Forbidden
+
+                raise Forbidden("reservation does not belong to this order")
+            res_tenant_id = getattr(reservation, "tenant_id", None)
+            if res_tenant_id is not None and res_tenant_id != order.tenant_id:
+                from shared.application.errors import Forbidden
+
+                raise Forbidden("reservation does not belong to this tenant")
+            from inventory.ports.publication import (
+                InvalidReservationTransition,
+                ReservationExpired,
+                ReservationStatus,
+            )
+
+            if getattr(reservation, "status", None) == ReservationStatus.RELEASED:
+                raise InvalidReservationTransition(
+                    current="RELEASED",
+                    requested="CONFIRMED",
+                    reason=f"reservation {reservation.id} is released and cannot confirm order",
+                )
+            if getattr(reservation, "status", None) == ReservationStatus.EXPIRED or (
+                hasattr(reservation, "expires_at") and now >= reservation.expires_at
+            ):
+                raise ReservationExpired(
+                    f"reservation {reservation.id} expired and can no longer confirm order",
+                    details={
+                        "reservation_id": str(reservation.id),
+                        "expired_at": str(getattr(reservation, "expires_at", None)),
+                    },
+                )
+            if hasattr(reservation, "is_active"):
+                is_act = (
+                    reservation.is_active(now=now)
+                    if callable(reservation.is_active)
+                    else bool(reservation.is_active)
+                )
+                if not is_act:
+                    msg = f"reservation {reservation.id} is not active and cannot confirm order"
+                    raise ReservationExpired(msg)
+
         coverage: Mapping[OrderLineId, int] = (
             coverage_by_line(reservation.covered_lines()) if reservation is not None else {}
         )
