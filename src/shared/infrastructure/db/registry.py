@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from audit.adapters.persistence import tables as audit_tables
 from catalog.adapters.persistence import tables as catalog_tables
+from fulfillment.adapters.persistence import tables as fulfillment_tables
 from identity.adapters.persistence import tables as identity_tables
 from inventory.adapters.persistence import tables as inventory_tables
 from ordering.adapters.persistence import tables as ordering_tables
@@ -17,6 +18,7 @@ from shared.infrastructure.db import tables as shared_tables
 __all__ = [
     "audit_tables",
     "catalog_tables",
+    "fulfillment_tables",
     "identity_tables",
     "inventory_tables",
     "ordering_tables",

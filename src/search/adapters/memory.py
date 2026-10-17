@@ -122,45 +122,65 @@ class InMemorySearchIndexer(SearchIndexer):
             if str(body.get("tenant_id")) != query.tenant_id:
                 continue
 
-            # 2. Status / Action filter
-            if query.status:
-                status_val = str(body.get("status") or body.get("action") or "")
-                if status_val != query.status:
+            # 2. Index-specific filters
+            is_audit = query.index_alias == "audit_logs" or "audit" in query.index_alias
+            if is_audit:
+                effective_action = query.action or query.status
+                if effective_action and str(body.get("action") or "") != effective_action:
                     continue
 
-            # 3. Customer / Actor filter
-            if query.customer:
-                cust_match = (
-                    str(body.get("customer_id") or "") == query.customer
-                    or str(body.get("customer_reference") or "") == query.customer
-                    or str(body.get("actor_id") or "") == query.customer
-                )
-                if not cust_match:
+                effective_actor = query.actor_id or query.customer
+                if effective_actor and str(body.get("actor_id") or "") != effective_actor:
                     continue
 
-            # 4. Warehouse filter
-            if query.warehouse:
-                wh_ids = [str(w) for w in body.get("warehouse_ids", [])]
-                single_wh = str(body.get("warehouse_id") or "")
-                if query.warehouse not in wh_ids and query.warehouse != single_wh:
+                if (
+                    query.resource_type
+                    and str(body.get("resource_type") or "") != query.resource_type
+                ):
                     continue
 
-            # 5. Date filters
-            created_at_str = str(body.get("created_at") or body.get("occurred_at") or "")
-            if query.date_from and created_at_str < query.date_from:
-                continue
-            if query.date_to and created_at_str > query.date_to:
-                continue
+                if query.resource_id and str(body.get("resource_id") or "") != query.resource_id:
+                    continue
 
-            # 6. SKU filter
+                occurred_at_str = str(body.get("occurred_at") or "")
+                if query.date_from and occurred_at_str < query.date_from:
+                    continue
+                if query.date_to and occurred_at_str > query.date_to:
+                    continue
+            else:
+                if query.status and str(body.get("status") or "") != query.status:
+                    continue
+
+                if query.customer:
+                    cust_match = (
+                        str(body.get("customer_id") or "") == query.customer
+                        or str(body.get("customer_reference") or "") == query.customer
+                    )
+                    if not cust_match:
+                        continue
+
+                if query.warehouse:
+                    wh_ids = [str(w) for w in body.get("warehouse_ids", [])]
+                    single_wh = str(body.get("warehouse_id") or "")
+                    if query.warehouse not in wh_ids and query.warehouse != single_wh:
+                        continue
+
+                created_at_str = str(body.get("created_at") or "")
+                if query.date_from and created_at_str < query.date_from:
+                    continue
+                if query.date_to and created_at_str > query.date_to:
+                    continue
+
+                skus_list = list(body.get("skus", []))
+                if query.sku:
+                    has_sku = any(
+                        str(s.get("sku_code")) == query.sku or str(s.get("sku_id")) == query.sku
+                        for s in skus_list
+                    )
+                    if not has_sku:
+                        continue
+
             skus_list = list(body.get("skus", []))
-            if query.sku:
-                has_sku = any(
-                    str(s.get("sku_code")) == query.sku or str(s.get("sku_id")) == query.sku
-                    for s in skus_list
-                )
-                if not has_sku:
-                    continue
 
             # 7. Text search
             if q_lower:
@@ -208,13 +228,20 @@ class InMemorySearchIndexer(SearchIndexer):
 
         # 5. Sorting
         reverse = query.sort_order.lower() == "desc"
-        sort_key = (
-            query.sort_by
-            if query.sort_by in ("name", "status", "slug", "created_at", "updated_at")
-            else "created_at"
-        )
+        default_sort = "occurred_at" if query.index_alias == "audit_logs" else "created_at"
+        sort_field = query.sort_by if query.sort_by else default_sort
+
+        def _extract_sort_val(item: SearchResultItem) -> Any:
+            if sort_field in ("created_at", "updated_at", "status", "slug", "name"):
+                return getattr(item, sort_field) or ""
+            if item.raw_source and sort_field in item.raw_source:
+                return str(item.raw_source[sort_field] or "")
+            if sort_field == "occurred_at":
+                return str(item.raw_source.get("occurred_at") or item.created_at or "")
+            return ""
+
         matched_items.sort(
-            key=lambda item: (getattr(item, sort_key) or "", item.id),
+            key=lambda item: (_extract_sort_val(item), item.id),
             reverse=reverse,
         )
 
@@ -227,7 +254,7 @@ class InMemorySearchIndexer(SearchIndexer):
             target_val, target_id = query.search_after[0], query.search_after[1]
             filtered_items: list[SearchResultItem] = []
             for item in matched_items:
-                cur_val = getattr(item, sort_key) or ""
+                cur_val = _extract_sort_val(item)
                 if reverse:
                     is_after = (cur_val, item.id) < (target_val, target_id)
                 else:
@@ -243,7 +270,7 @@ class InMemorySearchIndexer(SearchIndexer):
         next_cursor = None
         if len(page_items) == safe_page_size:
             last_item = page_items[-1]
-            last_val = getattr(last_item, sort_key) or ""
+            last_val = _extract_sort_val(last_item)
             next_cursor = json.dumps([last_val, last_item.id])
 
         total_pages = max(1, math.ceil(total / safe_page_size)) if total > 0 else 1

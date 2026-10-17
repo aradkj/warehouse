@@ -448,6 +448,7 @@ class ProductSearchProjector:
         """Index search document using external optimistic versioning."""
         search_doc = doc.to_search_document(alias=self._index_alias)
         await self._indexer.index((search_doc,))
+        await self._bump_search_version(str(doc.tenant_id))
 
     async def _invalidate_cache(self, key: str) -> None:
         """Invalidate a Redis cache key safely without failing the projection."""
@@ -551,6 +552,7 @@ class ProductSearchProjector:
         """Index order search document."""
         search_doc = doc.to_search_document(alias=ORDERS_INDEX_ALIAS)
         await self._indexer.index((search_doc,))
+        await self._bump_search_version(str(doc.tenant_id))
 
     async def _index_fulfillment_exception_document(
         self, doc: FulfillmentExceptionSearchDocument
@@ -558,11 +560,16 @@ class ProductSearchProjector:
         """Index fulfillment exception search document."""
         search_doc = doc.to_search_document(alias=FULFILLMENT_EXCEPTIONS_INDEX_ALIAS)
         await self._indexer.index((search_doc,))
+        await self._bump_search_version(str(doc.tenant_id))
 
-    async def _index_audit_document(self, doc: AuditSearchDocument) -> None:
+    async def _index_audit_document(
+        self, doc: AuditSearchDocument, alias: str | None = None
+    ) -> None:
         """Index audit search document."""
-        search_doc = doc.to_search_document(alias=AUDIT_INDEX_ALIAS)
+        search_doc = doc.to_search_document(alias=alias or AUDIT_INDEX_ALIAS)
         await self._indexer.index((search_doc,))
+        if doc.tenant_id:
+            await self._bump_search_version(str(doc.tenant_id))
 
 
 __all__ = ["ProductSearchProjector"]

@@ -257,7 +257,7 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        return self.environment.lower() in {"production", "prod"}
+        return self.environment.lower() in {"production", "prod", "staging", "stage"}
 
 
 @lru_cache(maxsize=1)

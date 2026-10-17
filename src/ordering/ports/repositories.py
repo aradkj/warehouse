@@ -38,4 +38,4 @@ class OrderRepository(Protocol):
     ) -> Page[Order]: ...
 
 
-__all__ = ["OrderRepository"]
+__all__ = ["OrderRepository", "OrderStatus"]

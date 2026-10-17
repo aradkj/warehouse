@@ -254,10 +254,27 @@ async def _run_search_consumer() -> None:
 
         connection = await aio_pika.connect_robust(settings.rabbitmq_url)
         async with connection:
-            channel = await connection.channel()
+            channel = await connection.channel(publisher_confirms=True, on_return_raises=True)
             await channel.set_qos(prefetch_count=10)
             await declare_topology(channel)
             queue = await channel.get_queue(QUEUE_SEARCH)
+
+            # Auto-healing hook: re-declare topology on routing failure
+            async def _on_routing_recovery(
+                msg: aio_pika.abc.AbstractIncomingMessage, exc: Exception
+            ) -> None:
+                logger.warning(
+                    "Search consumer routing failure (%s), attempting topology re-declaration...",
+                    exc,
+                )
+                try:
+                    if not channel.is_closed:
+                        await declare_topology(channel)
+                except Exception as top_err:
+                    logger.error("Topology re-declaration failed during recovery: %s", top_err)
+
+            consumer._on_routing_failure = _on_routing_recovery
+
             logger.info("Search consumer listening on %s...", QUEUE_SEARCH)
             async with queue.iterator() as queue_iter:
                 async for message in queue_iter:

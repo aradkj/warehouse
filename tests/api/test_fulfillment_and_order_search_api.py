@@ -34,9 +34,34 @@ async def test_fulfillment_lifecycle_api(client: httpx.AsyncClient) -> None:
     tenant_id, admin_token, _, _, _, _ = await setup_tenant_and_users(client)
     headers = {"Authorization": f"Bearer {admin_token}", "X-Tenant-Id": tenant_id}
 
-    order_id = str(uuid4())
-    warehouse_id = str(uuid4())
-    sku_id = str(uuid4())
+    # Provision warehouse, catalog, stock, and confirmed order
+    _product_id, sku_id = await seed.provision_catalog(
+        client,
+        tenant_id=tenant_id,
+        slug=f"tee-{uuid4().hex[:6]}",
+        code=f"SKU-{uuid4().hex[:6]}",
+    )
+    warehouse_id = await seed.create_warehouse(
+        client,
+        tenant_id=tenant_id,
+        code=f"WH-{uuid4().hex[:6]}",
+        name="Main DC",
+    )
+    await seed.adjust_stock(
+        client,
+        tenant_id=tenant_id,
+        sku_id=sku_id,
+        warehouse_id=warehouse_id,
+        quantity_delta=100,
+    )
+    order_resp = await client.post(
+        "/v1/orders",
+        headers={**headers, "Idempotency-Key": f"ord-{uuid4().hex[:8]}"},
+        json={"lines": [{"sku_id": sku_id, "quantity": 2}]},
+    )
+    order_data = seed.expect(order_resp, 201)
+    order_id = order_data["id"]
+    assert order_data["status"] == "CONFIRMED"
 
     # 1. POST /v1/fulfillments
     payload = {
@@ -57,6 +82,14 @@ async def test_fulfillment_lifecycle_api(client: httpx.AsyncClient) -> None:
     assert f_data["order_id"] == order_id
     assert f_data["status"] == "ALLOCATED"
     assert len(f_data["tasks"]) == 1
+
+    # BIZ-002: Duplicate active fulfillment is rejected with 409 Conflict
+    dup_resp = await client.post(
+        "/v1/fulfillments",
+        headers={**headers, "Idempotency-Key": f"f-req-dup-{uuid4().hex[:8]}"},
+        json=payload,
+    )
+    assert dup_resp.status_code == 409
 
     # 2. GET /v1/fulfillments/{id}
     get_resp = await client.get(f"/v1/fulfillments/{fulfillment_id}", headers=headers)

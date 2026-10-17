@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.application.context import RequestContext
 from shared.application.events import EventDispatcher
+from shared.domain.errors import InvariantViolation
 from shared.domain.events import DomainEvent
 from shared.infrastructure.db.session import SqlAlchemyTransactionScope
 from shared.infrastructure.db.tables import outbox_events
@@ -94,7 +95,9 @@ class SqlAlchemyOutboxEventDispatcher(EventDispatcher):
         for event in events:
             tenant_id_val = getattr(event, "tenant_id", None)
             if tenant_id_val is None:
-                continue
+                raise InvariantViolation(
+                    f"Cannot dispatch domain event '{event.event_name}' without tenant_id to outbox"
+                )
             tenant_uuid = uuid.UUID(str(tenant_id_val))
 
             agg_type, agg_id = resolve_aggregate_info(event)

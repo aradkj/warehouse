@@ -10,9 +10,10 @@ from fulfillment.application.commands import (
 )
 from fulfillment.application.views import FulfillmentView
 from fulfillment.domain.fulfillment import Fulfillment
-from fulfillment.domain.value_objects import FulfillmentTask
+from fulfillment.domain.value_objects import FulfillmentStatus, FulfillmentTask
 from fulfillment.ports.unit_of_work import FulfillmentUnitOfWork
-from shared.application.errors import NotFound
+from ordering.ports.repositories import OrderStatus
+from shared.application.errors import DuplicateResource, InvalidRequest, NotFound
 from shared.application.idempotency import IdempotencyRecord, completed_resource_id
 from shared.application.use_case import Executed, QueryUseCase, UseCase, pull_events
 from shared.domain.identifiers import FulfillmentId, FulfillmentTaskId, new_id
@@ -33,6 +34,60 @@ class RequestFulfillment(
         uow: FulfillmentUnitOfWork,
         command: RequestFulfillmentCommand,
     ) -> Executed[FulfillmentView]:
+        # 1. Validate order existence, tenant ownership, and status
+        order = await uow.orders.get(
+            tenant_id=command.tenant_id,
+            order_id=command.order_id,
+        )
+        if order is None:
+            raise NotFound("order", command.order_id)
+        if order.status != OrderStatus.CONFIRMED:
+            raise InvalidRequest(
+                f"order {command.order_id} in status '{order.status.value}' "
+                "cannot be fulfilled; status must be 'CONFIRMED'",
+                details={"order_id": str(command.order_id), "status": order.status.value},
+            )
+
+        # 2. Validate warehouse existence, tenant ownership, and active status
+        warehouse = await uow.warehouses.get(
+            tenant_id=command.tenant_id,
+            warehouse_id=command.warehouse_id,
+        )
+        if warehouse is None:
+            raise NotFound("warehouse", command.warehouse_id)
+        if not warehouse.is_active:
+            raise InvalidRequest(
+                f"warehouse {command.warehouse_id} is inactive and cannot accept "
+                "fulfillment requests",
+                details={"warehouse_id": str(command.warehouse_id)},
+            )
+
+        # 3. Check for existing active fulfillment for the order
+        existing_fulfillments = await uow.fulfillments.list_by_order(
+            tenant_id=command.tenant_id,
+            order_id=command.order_id,
+        )
+        for existing in existing_fulfillments:
+            if existing.status in (
+                FulfillmentStatus.PENDING,
+                FulfillmentStatus.ALLOCATED,
+                FulfillmentStatus.IN_PROGRESS,
+            ):
+                raise DuplicateResource(resource_type="fulfillment", field="order_id")
+
+        # 4. Validate that requested requirements are part of order lines
+        if order.lines:
+            order_sku_ids = {line.sku_id for line in order.lines}
+            for req in command.requirements:
+                if req.sku_id not in order_sku_ids:
+                    raise InvalidRequest(
+                        f"SKU {req.sku_id} is not part of order {command.order_id}",
+                        details={
+                            "sku_id": str(req.sku_id),
+                            "order_id": str(command.order_id),
+                        },
+                    )
+
         tasks = [
             FulfillmentTask(
                 task_id=FulfillmentTaskId(new_id()),

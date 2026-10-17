@@ -196,3 +196,20 @@ async def test_prune_published_outbox_events_against_postgresql(
     assert rem_old == 0
     assert rem_recent == 1
     assert rem_pending == 1
+
+
+async def test_outbox_dispatcher_raises_on_tenantless_event(
+    database_handle: Database,
+) -> None:
+    """Outbox dispatcher fails closed when a domain event lacks tenant_id (MSG-002)."""
+    from shared.domain.errors import InvariantViolation
+    from shared.domain.events import DomainEvent
+    from shared.infrastructure.db.outbox import SqlAlchemyOutboxEventDispatcher
+
+    class TenantlessEvent(DomainEvent):
+        pass
+
+    async with database_handle.new_scope() as scope:
+        dispatcher = SqlAlchemyOutboxEventDispatcher(scope)
+        with pytest.raises(InvariantViolation, match="without tenant_id to outbox"):
+            await dispatcher.dispatch((TenantlessEvent(),))

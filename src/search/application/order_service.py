@@ -180,43 +180,84 @@ class SearchOrdersService:
             search_after=search_after_values,
         )
 
-        result = await self._indexer.search(query)
-
-        opaque_next_cursor: str | None = None
-        if result.next_cursor:
-            try:
-                sort_tokens = json.loads(result.next_cursor)
-                cursor_dict = {
-                    "v": sort_tokens,
-                    "h": self._compute_base_hash(
-                        q=q,
-                        status=status,
-                        sku=sku,
-                        customer=customer,
-                        warehouse=warehouse,
-                        date_from=date_from,
-                        date_to=date_to,
-                        sort_by=sort_by_norm,
-                        sort_order=sort_order_norm,
-                    ),
-                    "t": tenant_id,
-                }
-                encoded = base64.urlsafe_b64encode(json.dumps(cursor_dict).encode("utf-8")).decode(
-                    "ascii"
-                )
-                opaque_next_cursor = encoded
-            except Exception as exc:
-                logger.warning("Failed to encode next_cursor: %s", exc)
-                opaque_next_cursor = None
-
-        return SearchPageResult(
-            items=result.items,
-            total=result.total,
-            page=result.page,
-            page_size=result.page_size,
-            total_pages=result.total_pages,
-            next_cursor=opaque_next_cursor,
+        query_hash = self._compute_base_hash(
+            q=q,
+            status=status,
+            sku=sku,
+            customer=customer,
+            warehouse=warehouse,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by_norm,
+            sort_order=sort_order_norm,
         )
+
+        async def _execute_search() -> dict[str, Any]:
+            result = await self._indexer.search(query)
+            opaque_next_cursor: str | None = None
+            if result.next_cursor:
+                try:
+                    sort_tokens = json.loads(result.next_cursor)
+                    cursor_dict = {
+                        "v": sort_tokens,
+                        "h": query_hash,
+                        "t": tenant_id,
+                    }
+                    encoded = base64.urlsafe_b64encode(
+                        json.dumps(cursor_dict).encode("utf-8")
+                    ).decode("ascii")
+                    opaque_next_cursor = encoded
+                except Exception as exc:
+                    logger.warning("Failed to encode next_cursor: %s", exc)
+                    opaque_next_cursor = None
+
+            page_result = SearchPageResult(
+                items=result.items,
+                total=result.total,
+                page=result.page,
+                page_size=result.page_size,
+                total_pages=result.total_pages,
+                next_cursor=opaque_next_cursor,
+            )
+            return page_result.to_dict()
+
+        if self._cache is not None:
+            current_gen: int | None = None
+            try:
+                from shared.infrastructure.cache.keys import default_key_builder
+
+                ver_key = default_key_builder.search_version(tenant_id)
+                ver_val = await self._cache.get(ver_key)
+                if ver_val is not None:
+                    current_gen = int(ver_val)
+            except Exception:
+                current_gen = None
+
+            from shared.infrastructure.cache.keys import default_key_builder
+
+            cache_key = default_key_builder.search(
+                tenant_id=tenant_id,
+                resource_type="orders",
+                query_hash=query_hash,
+                version=current_gen,
+            )
+            try:
+                cached_dict = await self._cache.get_or_set(
+                    key=cache_key,
+                    factory=_execute_search,
+                    ttl=self._cache_ttl_seconds,
+                )
+                if isinstance(cached_dict, dict):
+                    return SearchPageResult.from_dict(cached_dict)
+            except Exception as exc:
+                logger.warning(
+                    "Order search cache lookup failed for %s, falling back to indexer: %s",
+                    cache_key,
+                    exc,
+                )
+
+        dict_result = await _execute_search()
+        return SearchPageResult.from_dict(dict_result)
 
 
 __all__ = ["SearchOrdersService"]

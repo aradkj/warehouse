@@ -17,6 +17,8 @@ import random
 import sys
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -55,8 +57,6 @@ async def execute_benchmarks(
         db_max_overflow=30,
     )
 
-    from contextlib import asynccontextmanager
-
     # Select client transport: local ASGI or remote HTTP
     transport: httpx.AsyncBaseTransport
     app = None
@@ -68,7 +68,7 @@ async def execute_benchmarks(
         client_kwargs = {"transport": transport, "base_url": "http://testserver"}
 
     @asynccontextmanager
-    async def app_scope():
+    async def app_scope() -> AsyncIterator[None]:
         if app is not None:
             async with app.router.lifespan_context(app):
                 yield

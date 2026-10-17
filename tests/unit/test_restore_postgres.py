@@ -121,3 +121,30 @@ def test_run_restore_fails_closed_on_unauthorized_target(monkeypatch: pytest.Mon
             PermissionError, match="Refusing destructive restore over non-isolated target"
         ):
             run_restore(sql_file, target_url, confirm_destructive_restore=False)
+
+
+def test_build_terminate_connections_sql() -> None:
+    from scripts.restore_postgres import build_terminate_connections_sql
+
+    stmts = build_terminate_connections_sql('"test_db"', "test_db")
+    assert len(stmts) == 2
+    assert 'ALTER DATABASE "test_db" WITH ALLOW_CONNECTIONS false;' in stmts[0]
+    assert "pg_terminate_backend" in stmts[1]
+    assert "datname = 'test_db'" in stmts[1]
+    assert "pid <> pg_backend_pid()" in stmts[1]
+
+
+def test_run_restore_rejects_maintenance_databases() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sql_file = Path(tmpdir) / "backup.sql"
+        sql_file.write_text("SELECT 1;", encoding="utf-8")
+        actual_sha = compute_sha256(sql_file)
+        sha_file = Path(tmpdir) / "backup.sql.sha256"
+        sha_file.write_text(f"{actual_sha}  backup.sql\n", encoding="utf-8")
+
+        for m_db in ("postgres", "template0", "template1"):
+            target_url = f"postgresql://arad:arad@localhost:5432/{m_db}"
+            with pytest.raises(
+                ValueError, match="Refusing to restore over system maintenance/template database"
+            ):
+                run_restore(sql_file, target_url, confirm_destructive_restore=True)

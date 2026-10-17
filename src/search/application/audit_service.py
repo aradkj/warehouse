@@ -154,11 +154,27 @@ class SearchAuditService:
                     "malformed or invalid pagination cursor", details={"cursor": cursor}
                 ) from exc
 
+        query_hash = self._compute_base_hash(
+            q=q,
+            action=action,
+            actor_id=actor_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by_norm,
+            sort_order=sort_order_norm,
+        )
+
         query = SearchQuery(
             tenant_id=tenant_id,
             q=q.strip() if q and q.strip() else None,
-            status=action.strip() if action and action.strip() else None,
-            customer=actor_id.strip() if actor_id and actor_id.strip() else None,
+            action=action.strip() if action and action.strip() else None,
+            actor_id=actor_id.strip() if actor_id and actor_id.strip() else None,
+            resource_type=(
+                resource_type.strip() if resource_type and resource_type.strip() else None
+            ),
+            resource_id=resource_id.strip() if resource_id and resource_id.strip() else None,
             date_from=date_from.strip() if date_from and date_from.strip() else None,
             date_to=date_to.strip() if date_to and date_to.strip() else None,
             page=max(1, page),
@@ -170,42 +186,71 @@ class SearchAuditService:
             search_after=search_after_values,
         )
 
-        result = await self._indexer.search(query)
+        async def _execute_search() -> dict[str, Any]:
+            result = await self._indexer.search(query)
+            opaque_next_cursor: str | None = None
+            if result.next_cursor:
+                try:
+                    sort_tokens = json.loads(result.next_cursor)
+                    cursor_dict = {
+                        "v": sort_tokens,
+                        "h": query_hash,
+                        "t": tenant_id,
+                    }
+                    opaque_next_cursor = base64.urlsafe_b64encode(
+                        json.dumps(cursor_dict).encode("utf-8")
+                    ).decode("ascii")
+                except Exception as exc:
+                    logger.warning("Failed to encode next_cursor: %s", exc)
+                    opaque_next_cursor = None
 
-        opaque_next_cursor: str | None = None
-        if result.next_cursor:
+            page_result = SearchPageResult(
+                items=result.items,
+                total=result.total,
+                page=result.page,
+                page_size=result.page_size,
+                total_pages=result.total_pages,
+                next_cursor=opaque_next_cursor,
+            )
+            return page_result.to_dict()
+
+        if self._cache is not None:
+            current_gen: int | None = None
             try:
-                sort_tokens = json.loads(result.next_cursor)
-                cursor_dict = {
-                    "v": sort_tokens,
-                    "h": self._compute_base_hash(
-                        q=q,
-                        action=action,
-                        actor_id=actor_id,
-                        resource_type=resource_type,
-                        resource_id=resource_id,
-                        date_from=date_from,
-                        date_to=date_to,
-                        sort_by=sort_by_norm,
-                        sort_order=sort_order_norm,
-                    ),
-                    "t": tenant_id,
-                }
-                opaque_next_cursor = base64.urlsafe_b64encode(
-                    json.dumps(cursor_dict).encode("utf-8")
-                ).decode("ascii")
-            except Exception as exc:
-                logger.warning("Failed to encode next_cursor: %s", exc)
-                opaque_next_cursor = None
+                from shared.infrastructure.cache.keys import default_key_builder
 
-        return SearchPageResult(
-            items=result.items,
-            total=result.total,
-            page=result.page,
-            page_size=result.page_size,
-            total_pages=result.total_pages,
-            next_cursor=opaque_next_cursor,
-        )
+                ver_key = default_key_builder.search_version(tenant_id)
+                ver_val = await self._cache.get(ver_key)
+                if ver_val is not None:
+                    current_gen = int(ver_val)
+            except Exception:
+                current_gen = None
+
+            from shared.infrastructure.cache.keys import default_key_builder
+
+            cache_key = default_key_builder.search(
+                tenant_id=tenant_id,
+                resource_type="audit",
+                query_hash=query_hash,
+                version=current_gen,
+            )
+            try:
+                cached_dict = await self._cache.get_or_set(
+                    key=cache_key,
+                    factory=_execute_search,
+                    ttl=self._cache_ttl_seconds,
+                )
+                if isinstance(cached_dict, dict):
+                    return SearchPageResult.from_dict(cached_dict)
+            except Exception as exc:
+                logger.warning(
+                    "Audit search cache lookup failed for %s, falling back to indexer: %s",
+                    cache_key,
+                    exc,
+                )
+
+        dict_result = await _execute_search()
+        return SearchPageResult.from_dict(dict_result)
 
 
 __all__ = ["ALLOWED_AUDIT_SORT_FIELDS", "SearchAuditService"]

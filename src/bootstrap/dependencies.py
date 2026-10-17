@@ -487,7 +487,12 @@ async def get_authenticated_tenant_context(
             principal=principal,
         )
 
-    if settings.auth_required:
+    dev_environments = {"local", "test", "dev", "development"}
+    if (
+        settings.auth_required
+        or settings.is_production
+        or settings.environment.lower() not in dev_environments
+    ):
         raise AuthenticationFailed("authentication required")
 
     legacy_context = get_request_context(
@@ -596,7 +601,12 @@ def require_permission(
     ) -> Principal:
         effective_principal = principal
         if effective_principal is None:
-            if settings.auth_required:
+            dev_environments = {"local", "test", "dev", "development"}
+            if (
+                settings.auth_required
+                or settings.is_production
+                or settings.environment.lower() not in dev_environments
+            ):
                 raise AuthenticationFailed("authentication required")
             # Legacy non-authenticated request in test / local setup
             return Principal(

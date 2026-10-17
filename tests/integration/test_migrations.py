@@ -11,6 +11,7 @@ reapplied.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,6 +26,40 @@ pytestmark = pytest.mark.integration
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRATCH_DATABASE = "arad_migration_test"
+
+
+def _validate_scratch_database_name(name: str) -> None:
+    """Validate that database name strictly matches the designated scratch database and is safe to drop."""
+    if not all(c.isalnum() or c == "_" for c in name):
+        raise ValueError(f"Unsafe database name format: {name!r}")
+    if name != SCRATCH_DATABASE:
+        raise ValueError(
+            f"Refusing to drop or create unexpected database: {name!r}. Must be {SCRATCH_DATABASE!r}"
+        )
+    if name.lower() in {"postgres", "arad", "arad_test", "arad_prod", "template0", "template1"}:
+        raise ValueError(
+            f"Protected system or application database cannot be used as scratch: {name!r}"
+        )
+
+
+async def _safely_drop_database(autocommit_connection: Any, db_name: str) -> None:
+    """Safely drop a scratch database by validating name, terminating sessions, and forcing drop."""
+    _validate_scratch_database_name(db_name)
+    # 1. Terminate any active sessions targeting strictly the scratch database
+    await autocommit_connection.execute(
+        text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = :target AND pid <> pg_backend_pid()"
+        ),
+        {"target": db_name},
+    )
+    # 2. Disallow new connections
+    with contextlib.suppress(Exception):
+        await autocommit_connection.execute(
+            text(f'ALTER DATABASE "{db_name}" WITH ALLOW_CONNECTIONS false')
+        )
+    # 3. Drop with FORCE
+    await autocommit_connection.execute(text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'))
 
 
 def _admin_url(database: str) -> str:
@@ -73,7 +108,7 @@ async def scratch_database() -> Any:
     admin_connection = await admin.connect()
     autocommit = await admin_connection.execution_options(isolation_level="AUTOCOMMIT")
     try:
-        await autocommit.execute(text(f'DROP DATABASE IF EXISTS "{SCRATCH_DATABASE}"'))
+        await _safely_drop_database(autocommit, SCRATCH_DATABASE)
         await autocommit.execute(text(f'CREATE DATABASE "{SCRATCH_DATABASE}"'))
     finally:
         await admin_connection.close()
@@ -86,9 +121,7 @@ async def scratch_database() -> Any:
         connection = await admin.connect()
         autocommit = await connection.execution_options(isolation_level="AUTOCOMMIT")
         try:
-            await autocommit.execute(
-                text(f'DROP DATABASE IF EXISTS "{SCRATCH_DATABASE}" WITH (FORCE)')
-            )
+            await _safely_drop_database(autocommit, SCRATCH_DATABASE)
         finally:
             await connection.close()
         await admin.dispose()
@@ -127,6 +160,8 @@ EXPECTED_TABLES = {
     "service_account_scopes",
     "access_policies",
     "audit_logs",
+    "fulfillments",
+    "fulfillment_tasks",
 }
 
 
@@ -145,7 +180,7 @@ class TestMigrations:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-        assert version == "0009_harden_rls_and_roles"
+        assert version == "0010_durable_fulfillment"
 
     async def test_the_models_and_the_migration_agree(self, scratch_database: AsyncEngine) -> None:
         """Autogenerate must find no difference between metadata and the migrated schema."""
@@ -168,7 +203,7 @@ class TestMigrations:
         assert diffs == [], f"schema drift detected: {diffs}"
 
     async def test_the_migration_round_trips(self, scratch_database: AsyncEngine) -> None:
-        """Reversible migrations (0001-0008) can round-trip to base; 0009 safely prohibits downgrade."""
+        """Reversible migrations can round-trip; 0009 safely prohibits downgrade."""
         scratch_url = str(scratch_database.url.render_as_string(hide_password=False))
 
         # 1. Migrations up to 0008 can round-trip to base
@@ -177,23 +212,32 @@ class TestMigrations:
         remaining = await table_names(scratch_database)
         assert remaining == {"alembic_version"}, f"downgrade left tables behind: {remaining}"
 
-        # 2. Upgrade to head (0009_harden_rls_and_roles)
+        # 2. Upgrade to head (0010_durable_fulfillment)
         await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "head")
         assert await table_names(scratch_database) == EXPECTED_TABLES
 
-        # 3. Attempting downgrade on 0009 is strictly refused with a security exception
+        # 3. Migration 0010 can downgrade to 0009
+        await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "0009_harden_rls_and_roles")
+        tables_at_0009 = await table_names(scratch_database)
+        assert "fulfillments" not in tables_at_0009
+        assert "fulfillment_tasks" not in tables_at_0009
+
+        # 4. Attempting downgrade on 0009 is strictly refused with a security exception
         with pytest.raises(
             RuntimeError,
             match="Downgrading migration 0009_harden_rls_and_roles is strictly prohibited",
         ):
             await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "-1")
 
-        # 4. Schema, version, and policies remain consistent and secure after rejected downgrade
+        # 5. Upgrade back to head
+        await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "head")
+
+        # 6. Schema, version, and policies remain consistent and secure after rejected downgrade
         async with scratch_database.connect() as connection:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-            assert version == "0009_harden_rls_and_roles"
+            assert version == "0010_durable_fulfillment"
 
             # Verify no policies retain bypass_rls
             result = await connection.execute(
@@ -464,3 +508,70 @@ class TestSchemaGuarantees:
             rendered = " ".join(str(line) for line in plan)
         assert "Seq Scan" not in rendered
         assert "inventory_items" in rendered
+
+
+class TestScratchDatabaseHardening:
+    """Verifies safe cleanup and validation of test scratch databases."""
+
+    def test_validate_scratch_database_name_rejects_unsafe_names(self) -> None:
+        with pytest.raises(ValueError, match="Refusing to drop or create unexpected database"):
+            _validate_scratch_database_name("other_database")
+
+        with pytest.raises(ValueError, match="Refusing to drop or create unexpected database"):
+            _validate_scratch_database_name("postgres")
+
+        with pytest.raises(ValueError, match="Refusing to drop or create unexpected database"):
+            _validate_scratch_database_name("arad")
+
+        with pytest.raises(ValueError, match="Unsafe database name format"):
+            _validate_scratch_database_name("arad_migration_test; DROP TABLE users; --")
+
+    def test_validate_scratch_database_name_accepts_valid_scratch(self) -> None:
+        # Does not raise
+        _validate_scratch_database_name("arad_migration_test")
+
+    async def test_safely_drop_database_handles_nonexistent_database(self) -> None:
+        admin = create_async_engine(_admin_url("postgres").replace("/postgres", "/arad_test"))
+        try:
+            admin_conn = await admin.connect()
+            auto = await admin_conn.execution_options(isolation_level="AUTOCOMMIT")
+            try:
+                # Should succeed without error even if the DB does not exist
+                await _safely_drop_database(auto, SCRATCH_DATABASE)
+            finally:
+                await admin_conn.close()
+        finally:
+            await admin.dispose()
+
+    async def test_safely_drop_database_terminates_lingering_connections(self) -> None:
+        admin = create_async_engine(_admin_url("postgres").replace("/postgres", "/arad_test"))
+        scratch_url = _admin_url(SCRATCH_DATABASE)
+        try:
+            admin_conn = await admin.connect()
+            auto = await admin_conn.execution_options(isolation_level="AUTOCOMMIT")
+            try:
+                # Clean drop and recreate
+                await _safely_drop_database(auto, SCRATCH_DATABASE)
+                await auto.execute(text(f'CREATE DATABASE "{SCRATCH_DATABASE}"'))
+
+                # Open a lingering connection to the scratch database
+                lingering_engine = create_async_engine(scratch_url)
+                lingering_conn = await lingering_engine.connect()
+
+                # Safely drop must terminate the lingering session and drop successfully
+                await _safely_drop_database(auto, SCRATCH_DATABASE)
+
+                # Ensure scratch database is gone
+                res = await auto.execute(
+                    text("SELECT 1 FROM pg_database WHERE datname = :target"),
+                    {"target": SCRATCH_DATABASE},
+                )
+                assert res.scalar() is None
+
+                with contextlib.suppress(Exception):
+                    await lingering_conn.close()
+                await lingering_engine.dispose()
+            finally:
+                await admin_conn.close()
+        finally:
+            await admin.dispose()

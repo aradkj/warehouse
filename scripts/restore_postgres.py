@@ -20,9 +20,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
-EXPECTED_HEAD_REVISION: str = "0009_harden_rls_and_roles"
+EXPECTED_HEAD_REVISION: str = "0010_durable_fulfillment"
+
+MAINTENANCE_DATABASES: tuple[str, ...] = ("postgres", "template0", "template1")
 
 _SAFE_IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_$]{0,62}$")
 
@@ -52,6 +55,20 @@ def validate_sql_identifier(identifier: str) -> str:
         )
     escaped = identifier.replace('"', '""')
     return f'"{escaped}"'
+
+
+def build_terminate_connections_sql(quoted_db_name: str, unquoted_db_name: str) -> list[str]:
+    """Construct SQL statements to safely disallow new connections and terminate active sessions.
+
+    Scoped strictly to the target database; never affects other databases or the maintenance session.
+    """
+    disallow_sql = f"ALTER DATABASE {quoted_db_name} WITH ALLOW_CONNECTIONS false;"
+    escaped_literal = unquoted_db_name.replace("'", "''")
+    terminate_sql = (
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{escaped_literal}' AND pid <> pg_backend_pid();"
+    )
+    return [disallow_sql, terminate_sql]
 
 
 def is_safe_non_production_target(db_name: str) -> bool:
@@ -129,6 +146,13 @@ def run_restore(
     params = parse_database_url(target_database_url)
     db_name = str(params["database"])
 
+    # Reject system maintenance / template databases
+    if db_name.lower() in MAINTENANCE_DATABASES:
+        raise ValueError(
+            f"Refusing to restore over system maintenance/template database '{db_name}'. "
+            "Target must be an application or tenant database."
+        )
+
     # SQL identifier validation and quoting
     quoted_db = validate_sql_identifier(db_name)
 
@@ -156,7 +180,7 @@ def run_restore(
 
     c_name = container_name or "arad-postgres-1"
 
-    def _exec_psql(cmd_args: list[str], stdin_f=None) -> subprocess.CompletedProcess:
+    def _exec_psql(cmd_args: list[str], stdin_f: Any = None) -> subprocess.CompletedProcess[str]:
         if use_local_psql:
             full_cmd = [
                 str(psql_bin),
@@ -188,10 +212,28 @@ def run_restore(
             full_cmd.extend(cmd_args)
             return subprocess.run(full_cmd, stdin=stdin_f, capture_output=True, text=True)
 
-    # Recreate target database safely using quoted identifier
-    drop_res = _exec_psql(["-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {quoted_db};"])
+    # Terminate active client connections targeting db_name safely before dropping
+    print(f"Terminating active sessions for target database {quoted_db}...")
+    disallow_sql, terminate_sql = build_terminate_connections_sql(quoted_db, db_name)
+    # Ignore errors from disallow in case database does not exist yet
+    _exec_psql(["-d", "postgres", "-c", disallow_sql])
+    term_res = _exec_psql(["-d", "postgres", "-c", terminate_sql])
+    if term_res.returncode != 0:
+        print(
+            f"Notice: Session termination returned code {term_res.returncode}: "
+            f"{term_res.stderr.strip()}",
+            file=sys.stderr,
+        )
+
+    # Recreate target database safely using quoted identifier with FORCE
+    drop_res = _exec_psql(
+        ["-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {quoted_db} WITH (FORCE);"]
+    )
     if drop_res.returncode != 0:
-        raise RuntimeError(f"Failed to drop database {db_name}: {drop_res.stderr}")
+        # Fallback to standard drop without WITH (FORCE) if older postgres
+        drop_res = _exec_psql(["-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {quoted_db};"])
+        if drop_res.returncode != 0:
+            raise RuntimeError(f"Failed to drop database {db_name}: {drop_res.stderr}")
 
     create_res = _exec_psql(["-d", "postgres", "-c", f"CREATE DATABASE {quoted_db};"])
     if create_res.returncode != 0:

@@ -138,7 +138,11 @@ def error_body(
 
 
 def _correlation_id(request: Request) -> str | None:
-    return getattr(request.state, "correlation_id", None)
+    return (
+        getattr(request.state, "correlation_id", None)
+        or request.headers.get("X-Correlation-Id")
+        or request.headers.get("x-correlation-id")
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -148,21 +152,33 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _domain_error(request: Request, exc: DomainError) -> JSONResponse:
         http_status = http_status_for(exc)
         if http_status >= 500:
-            # An invariant violation is a bug in our code, not a client error:
-            # log it with the correlation id and answer generically.
+            corr_id = _correlation_id(request)
             logger.exception(
                 "domain invariant violated",
-                extra={"correlation_id": _correlation_id(request), "error_code": exc.code},
+                extra={"correlation_id": corr_id, "error_code": exc.code},
+            )
+            body = error_body(
+                code="internal_error",
+                message="the request could not be completed",
+                details=None,
+                correlation_id=corr_id,
+                error_type="internal",
+            )
+            body.update(
+                {
+                    "type": "about:blank",
+                    "title": "Internal Server Error",
+                    "status": http_status,
+                    "detail": "the request could not be completed",
+                    "instance": str(request.url.path),
+                    "correlation_id": corr_id,
+                }
             )
             return JSONResponse(
                 status_code=http_status,
-                content=error_body(
-                    code="internal_error",
-                    message="the request could not be completed",
-                    details=None,
-                    correlation_id=_correlation_id(request),
-                    error_type="internal",
-                ),
+                media_type="application/problem+json",
+                content=body,
+                headers={"X-Correlation-Id": corr_id} if corr_id else None,
             )
         return JSONResponse(
             status_code=http_status,
@@ -219,17 +235,30 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        # Never leak internals: the correlation id ties the response to the log entry.
-        logger.exception("unhandled error", extra={"correlation_id": _correlation_id(request)})
+        corr_id = _correlation_id(request)
+        logger.exception("unhandled error", extra={"correlation_id": corr_id})
+        body = error_body(
+            code="internal_error",
+            message="the request could not be completed",
+            details=None,
+            correlation_id=corr_id,
+            error_type="internal",
+        )
+        body.update(
+            {
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "detail": "the request could not be completed",
+                "instance": str(request.url.path),
+                "correlation_id": corr_id,
+            }
+        )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=error_body(
-                code="internal_error",
-                message="the request could not be completed",
-                details=None,
-                correlation_id=_correlation_id(request),
-                error_type="internal",
-            ),
+            media_type="application/problem+json",
+            content=body,
+            headers={"X-Correlation-Id": corr_id} if corr_id else None,
         )
 
 

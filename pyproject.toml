@@ -134,6 +134,7 @@ ban-relative-imports = "all"
 [tool.mypy]
 python_version = "3.12"
 mypy_path = "src"
+explicit_package_bases = true
 packages = [
     "bootstrap",
     "shared",
@@ -145,7 +146,6 @@ packages = [
     "search",
     "audit",
 ]
-exclude = "^(migrations|tests)/"
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_decorators = true
@@ -158,6 +158,11 @@ check_untyped_defs = true
 extra_checks = true
 enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
 module = ["migrations.*"]

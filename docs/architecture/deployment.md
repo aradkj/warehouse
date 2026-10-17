@@ -33,10 +33,13 @@ Every release must adhere to forward-compatible, multi-step migration rules to e
    - `alembic_version` matches the required migration revision.
 3. Drain existing connections from old instances using graceful shutdown (`SIGTERM` with 30s timeout).
 
-### Step 3: Rolling Worker Deployment
-1. Deploy `outbox-relay`, `search-consumer`, and Celery `worker` services.
-2. Workers complete currently claimed inbox/outbox items before terminating.
-3. Unacknowledged RabbitMQ messages are automatically returned to queues upon channel close.
+### Step 3: Rolling Worker & Scheduler Deployment
+1. Deploy `outbox-relay`, `search-consumer`, Celery `worker`, and Celery `beat` scheduler services.
+2. The dedicated Celery `beat` scheduler runs single-instance to trigger periodic tasks:
+   - `inventory.expire_reservations_task` (sweeps expired reservations and releases inventory)
+   - `outbox.prune_published_events_task` (prunes published outbox events past retention window)
+3. Workers complete currently claimed inbox/outbox items before terminating.
+4. Unacknowledged RabbitMQ messages are automatically returned to queues upon channel close.
 
 ---
 
@@ -48,7 +51,16 @@ Production manifests (`docker-compose.prod.yml`) enforce defense-in-depth:
 - **Privilege escalation prevention**: `security_opt: [no-new-privileges:true]`.
 - **Filesystem immutability**: Containers run with `read_only: true` and temporary scratch paths mounted via `tmpfs: [/tmp]`.
 - **Resource quotas**: Explicit limits on CPU cores and memory allocations prevent resource exhaustion or noisy-neighbor interference.
-- **Secret enforcement**: Startup fails immediately if `ARAD_AUTH_JWT_SECRET`, `POSTGRES_PASSWORD`, or `RABBITMQ_PASSWORD` are missing or default.
+- **Internal Service Authentication (SEC-003)**:
+  - Redis runs with `--requirepass` and requires `REDIS_PASSWORD`.
+  - Elasticsearch runs with `xpack.security.enabled: "true"` and requires `ELASTICSEARCH_PASSWORD`.
+- **Mandatory Secret Enforcement**: Startup fails immediately if any required secret is missing:
+  - `POSTGRES_PASSWORD`
+  - `ARAD_APP_DB_PASSWORD`
+  - `RABBITMQ_PASSWORD`
+  - `REDIS_PASSWORD`
+  - `ELASTICSEARCH_PASSWORD`
+  - `ARAD_AUTH_JWT_SECRET`
 
 ---
 
@@ -58,6 +70,12 @@ If an incident occurs post-deployment:
 1. **Application Code Rollback**:
    Deploy previous image tag (`arad-api:previous-release`). Because schema changes are backward-compatible, older application code runs safely against the hardened schema. The application communicates using standard `app.current_tenant_id` context and does not rely on administrative database privileges.
 2. **Database Schema Rollback & One-Way Security Hardening**:
-   - Reversible migrations (revisions `0001` through `0008`) support downward migration if needed.
+   - Reversible migrations (revisions `0001` through `0008` and `0010_durable_fulfillment`) support downward migration if needed.
    - **Revision `0009_harden_rls_and_roles` is an irreversible security boundary**: Downgrading revision `0009` is strictly prohibited by Alembic runtime checks because reverting it would restore the deprecated `app.bypass_rls` GUC backdoor and weaken runtime role `arad_app`.
-   - If an operational rollback of database state is strictly necessary after applying `0009`, **do not run `alembic downgrade`**. Instead, restore an authoritative pre-deployment database backup using `scripts/restore_postgres.py` or apply a forward corrective migration.
+   - If an operational rollback of database state is strictly necessary after applying `0009`, **do not run `alembic downgrade 0008`**. Instead, restore an authoritative pre-deployment database backup using `scripts/restore_postgres.py` or apply a forward corrective migration.
+3. **Database Restoration (`scripts/restore_postgres.py`) (OPS-002)**:
+   - Validates target database name against allowed isolated patterns or requires explicit `--confirm-destructive-restore` and `CONFIRM_PRODUCTION_RESTORE=true`.
+   - Rejects restore attempts targeting system/maintenance databases (`postgres`, `template0`, `template1`).
+   - Verifies SHA-256 checksum sidecar (`.sha256`) before execution.
+   - Disallows new connections (`ALTER DATABASE ... WITH ALLOW_CONNECTIONS false`) and safely terminates active sessions targeting the specific database (`pg_terminate_backend`) before dropping and recreating.
+   - Recreates target database and verifies post-restore invariants (non-negative stock, matching Alembic revision).

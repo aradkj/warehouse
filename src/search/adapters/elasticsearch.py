@@ -32,12 +32,41 @@ from search.ports.indexer import (
     SearchQuery,
     SearchResultItem,
 )
-from shared.application.errors import SearchUnavailable
+from shared.application.errors import InvalidRequest, SearchUnavailable
 
 if TYPE_CHECKING:
     from bootstrap.config import Settings
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_SORT_FIELDS_BY_INDEX: dict[str, dict[str, str]] = {
+    "audit_logs": {
+        "occurred_at": "occurred_at",
+        "action": "action",
+        "resource_type": "resource_type",
+        "policy_decision": "policy_decision",
+        "actor_id": "actor_id",
+        "created_at": "occurred_at",
+    },
+    "products": {
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "name": "name.keyword",
+        "status": "status",
+        "slug": "slug",
+    },
+    "orders": {
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "status": "status",
+        "total_minor": "total_minor",
+    },
+    "fulfillment_exceptions": {
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "status": "status",
+    },
+}
 
 ALLOWED_SORT_FIELDS: dict[str, str] = {
     "created_at": "created_at",
@@ -47,6 +76,10 @@ ALLOWED_SORT_FIELDS: dict[str, str] = {
     "slug": "slug",
     "total_minor": "total_minor",
     "occurred_at": "occurred_at",
+    "action": "action",
+    "resource_type": "resource_type",
+    "policy_decision": "policy_decision",
+    "actor_id": "actor_id",
 }
 
 
@@ -316,72 +349,90 @@ class ElasticsearchIndexAdapter(SearchIndexer):
         # 1. Mandatory tenant filter (Strict Isolation)
         filter_clauses: list[dict[str, Any]] = [{"term": {"tenant_id": query.tenant_id}}]
 
-        if query.status:
-            filter_clauses.append({"term": {"status": query.status}})
+        is_audit = query.index_alias == "audit_logs" or "audit" in query.index_alias
 
-        if query.customer:
-            filter_clauses.append(
-                {
-                    "bool": {
-                        "should": [
-                            {"term": {"customer_id": query.customer}},
-                            {"term": {"customer_reference.keyword": query.customer}},
-                        ],
-                        "minimum_should_match": 1,
-                    }
-                }
-            )
+        if is_audit:
+            effective_action = query.action or query.status
+            if effective_action:
+                filter_clauses.append({"term": {"action": effective_action}})
 
-        if query.warehouse:
-            filter_clauses.append(
-                {
-                    "bool": {
-                        "should": [
-                            {"term": {"warehouse_ids": query.warehouse}},
-                            {"term": {"warehouse_id": query.warehouse}},
-                        ],
-                        "minimum_should_match": 1,
-                    }
-                }
-            )
+            effective_actor = query.actor_id or query.customer
+            if effective_actor:
+                filter_clauses.append({"term": {"actor_id": effective_actor}})
 
-        if query.date_from or query.date_to:
-            range_clause: dict[str, Any] = {}
-            if query.date_from:
-                range_clause["gte"] = query.date_from
-            if query.date_to:
-                range_clause["lte"] = query.date_to
-            date_field = "occurred_at" if query.index_alias == "audit_logs" else "created_at"
-            filter_clauses.append({"range": {date_field: range_clause}})
+            if query.resource_type:
+                filter_clauses.append({"term": {"resource_type": query.resource_type}})
 
-        if query.index_alias == "audit_logs":
+            if query.resource_id:
+                filter_clauses.append({"term": {"resource_id": query.resource_id}})
+
+            if query.date_from or query.date_to:
+                range_clause: dict[str, Any] = {}
+                if query.date_from:
+                    range_clause["gte"] = query.date_from
+                if query.date_to:
+                    range_clause["lte"] = query.date_to
+                filter_clauses.append({"range": {"occurred_at": range_clause}})
+        else:
             if query.status:
-                filter_clauses.append({"term": {"action": query.status}})
-            if query.customer:
-                filter_clauses.append({"term": {"actor_id": query.customer}})
+                filter_clauses.append({"term": {"status": query.status}})
 
-        if query.sku:
-            filter_clauses.append(
-                {
-                    "nested": {
-                        "path": "skus",
-                        "query": {
-                            "bool": {
-                                "should": [
-                                    {"term": {"skus.sku_code": query.sku}},
-                                    {"term": {"skus.sku_id": query.sku}},
-                                ],
-                                "minimum_should_match": 1,
-                            }
-                        },
+            if query.customer:
+                filter_clauses.append(
+                    {
+                        "bool": {
+                            "should": [
+                                {"term": {"customer_id": query.customer}},
+                                {"term": {"customer_reference.keyword": query.customer}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
                     }
-                }
-            )
+                )
+
+            if query.warehouse:
+                filter_clauses.append(
+                    {
+                        "bool": {
+                            "should": [
+                                {"term": {"warehouse_ids": query.warehouse}},
+                                {"term": {"warehouse_id": query.warehouse}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }
+                )
+
+            if query.date_from or query.date_to:
+                range_clause = {}
+                if query.date_from:
+                    range_clause["gte"] = query.date_from
+                if query.date_to:
+                    range_clause["lte"] = query.date_to
+                filter_clauses.append({"range": {"created_at": range_clause}})
+
+            if query.sku:
+                filter_clauses.append(
+                    {
+                        "nested": {
+                            "path": "skus",
+                            "query": {
+                                "bool": {
+                                    "should": [
+                                        {"term": {"skus.sku_code": query.sku}},
+                                        {"term": {"skus.sku_id": query.sku}},
+                                    ],
+                                    "minimum_should_match": 1,
+                                }
+                            },
+                        }
+                    }
+                )
 
         must_clauses: list[dict[str, Any]] = []
         if query.q and query.q.strip():
             cleaned_q = query.q.strip()
-            if query.index_alias == "audit_logs":
+            if is_audit:
                 must_clauses.append(
                     {
                         "multi_match": {
@@ -436,8 +487,33 @@ class ElasticsearchIndexAdapter(SearchIndexer):
             query_body["bool"]["must"] = must_clauses
 
         # 2. Safe sort resolution
-        default_sort = "occurred_at" if query.index_alias == "audit_logs" else "created_at"
-        sort_field = ALLOWED_SORT_FIELDS.get(query.sort_by, default_sort)
+        default_sort = "occurred_at" if is_audit else "created_at"
+        index_sorts = ALLOWED_SORT_FIELDS_BY_INDEX.get(query.index_alias)
+        if index_sorts is None:
+            if "audit" in query.index_alias:
+                index_sorts = ALLOWED_SORT_FIELDS_BY_INDEX["audit_logs"]
+            elif "order" in query.index_alias:
+                index_sorts = ALLOWED_SORT_FIELDS_BY_INDEX["orders"]
+            elif "product" in query.index_alias:
+                index_sorts = ALLOWED_SORT_FIELDS_BY_INDEX["products"]
+
+        if query.sort_by:
+            if index_sorts is not None:
+                if query.sort_by not in index_sorts:
+                    msg = (
+                        f"Sorting by '{query.sort_by}' is not permitted "
+                        f"for index '{query.index_alias}'"
+                    )
+                    raise InvalidRequest(
+                        msg,
+                        details={"allowed_sort_fields": sorted(index_sorts.keys())},
+                    )
+                sort_field = index_sorts[query.sort_by]
+            else:
+                sort_field = ALLOWED_SORT_FIELDS.get(query.sort_by, default_sort)
+        else:
+            sort_field = default_sort
+
         sort_order = "asc" if query.sort_order.lower() == "asc" else "desc"
         sort_clause: list[dict[str, Any]] = [
             {sort_field: {"order": sort_order}},

@@ -148,10 +148,12 @@ def run_backup(
                 "-f",
                 str(tmp_path),
             ]
-            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-            if proc.returncode != 0:
+            local_proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            if local_proc.returncode != 0:
                 tmp_path.unlink(missing_ok=True)
-                raise RuntimeError(f"pg_dump failed (code {proc.returncode}): {proc.stderr}")
+                raise RuntimeError(
+                    f"pg_dump failed (code {local_proc.returncode}): {local_proc.stderr}"
+                )
         else:
             # Fallback to docker container
             c_name = "arad-postgres-1"

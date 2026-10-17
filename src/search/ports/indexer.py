@@ -40,6 +40,10 @@ class SearchQuery:
     index_alias: str = "products"
     cursor: str | None = None
     search_after: tuple[Any, ...] | None = None
+    action: str | None = None
+    actor_id: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

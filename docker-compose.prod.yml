@@ -66,7 +66,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    command: ["sh", "-c", "exec redis-server --appendonly no --save '' --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Redis password required}
     networks:
       - backend
     security_opt:
@@ -77,7 +79,7 @@ services:
           cpus: "1.0"
           memory: 512M
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -90,7 +92,10 @@ services:
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD:?Elasticsearch password required}
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     volumes:
       - es-prod-data:/usr/share/elasticsearch/data
@@ -104,7 +109,7 @@ services:
           cpus: "2.0"
           memory: 1536M
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      test: ["CMD-SHELL", "curl -s -u \"elastic:${ELASTICSEARCH_PASSWORD}\" http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -166,8 +171,8 @@ services:
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
       ARAD_LOG_JSON: "true"
-      ARAD_REDIS_URL: redis://redis:6379/0
-      ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
+      ARAD_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ARAD_ELASTICSEARCH_URL: http://elastic:${ELASTICSEARCH_PASSWORD}@elasticsearch:9200
       ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
       ARAD_AUTH_REQUIRED: "true"
     ports:
@@ -252,7 +257,7 @@ services:
     environment:
       ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
-      ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
+      ARAD_ELASTICSEARCH_URL: http://elastic:${ELASTICSEARCH_PASSWORD}@elasticsearch:9200
       ARAD_ENVIRONMENT: production
     command: ["python", "-m", "bootstrap.workers", "search-consumer"]
     networks:
@@ -292,7 +297,7 @@ services:
     environment:
       ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
-      ARAD_REDIS_URL: redis://redis:6379/0
+      ARAD_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       ARAD_ENVIRONMENT: production
     command: ["celery", "-A", "bootstrap.celery_app", "worker", "--loglevel=INFO"]
     networks:
@@ -302,6 +307,56 @@ services:
         limits:
           cpus: "1.5"
           memory: 768M
+
+  # ----------------------------------------------------
+  # Celery Beat Periodic Scheduler
+  # ----------------------------------------------------
+  beat:
+    build:
+      context: .
+      target: runtime
+    image: arad-api:prod
+    restart: unless-stopped
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      ARAD_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ARAD_ENVIRONMENT: production
+      ARAD_LOG_LEVEL: INFO
+    command:
+      [
+        "celery",
+        "-A",
+        "bootstrap.celery_app",
+        "beat",
+        "--loglevel=INFO",
+        "-s",
+        "/tmp/celerybeat-schedule"
+      ]
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
 networks:
   backend:
