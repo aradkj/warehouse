@@ -11,7 +11,7 @@ import logging
 import sys
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from bootstrap.celery_app import celery_app
 from bootstrap.config import get_settings
@@ -110,7 +110,7 @@ async def _run_prune_outbox(
     """Prune already-PUBLISHED outbox events older than retention_days threshold."""
     from datetime import timedelta
 
-    from sqlalchemy import delete
+    from sqlalchemy import CursorResult, delete
 
     from shared.infrastructure.db.tables import outbox_events
 
@@ -128,7 +128,8 @@ async def _run_prune_outbox(
             )
             res = await scope.session.execute(stmt)
             await scope.commit()
-            deleted = res.rowcount or 0
+            cursor_res = cast(CursorResult[Any], res)
+            deleted = cursor_res.rowcount or 0
             if deleted > 0:
                 logger.info(
                     "Pruned %d published outbox events older than %d days (%s)",

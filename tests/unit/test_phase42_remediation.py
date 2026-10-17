@@ -899,3 +899,105 @@ class TestStage4DurableAudit:
         assert details["after"]["public_info"] == "safe_data"
         assert details["access_token"] == "[REDACTED]"
         assert details["client_secret"] == "[REDACTED]"
+
+
+# ==============================================================================
+# Outbox Retention Pruning Tests
+# ==============================================================================
+class TestOutboxRetentionPruner:
+    """Verifies _run_prune_outbox correctly prunes eligible events and preserves invariants."""
+
+    @pytest.mark.asyncio
+    async def test_prune_outbox_deletes_eligible_published_events(self) -> None:
+        from bootstrap.workers import _run_prune_outbox
+
+        mock_db = MagicMock()
+        mock_scope = AsyncMock()
+        mock_session = AsyncMock()
+        mock_scope.session = mock_session
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 5
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_scope.commit = AsyncMock()
+
+        mock_db.new_scope.return_value.__aenter__.return_value = mock_scope
+        mock_db.new_scope.return_value.__aexit__.return_value = None
+
+        deleted = await _run_prune_outbox(database=mock_db, retention_days=14)
+
+        assert deleted == 5
+        assert mock_session.execute.called
+        assert mock_scope.commit.called
+
+        # Validate that statement targets outbox_events with PUBLISHED status filter
+        stmt = mock_session.execute.call_args[0][0]
+        sql_str = str(stmt).lower()
+        assert "delete from outbox_events" in sql_str
+        assert "status = :status_1" in sql_str
+        assert "published_at <=" in sql_str
+
+        compiled_params = stmt.compile().params
+        assert compiled_params["status_1"] == "PUBLISHED"
+
+    @pytest.mark.asyncio
+    async def test_prune_outbox_returns_zero_when_no_rows_matched(self) -> None:
+        from bootstrap.workers import _run_prune_outbox
+
+        mock_db = MagicMock()
+        mock_scope = AsyncMock()
+        mock_session = AsyncMock()
+        mock_scope.session = mock_session
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_db.new_scope.return_value.__aenter__.return_value = mock_scope
+        mock_db.new_scope.return_value.__aexit__.return_value = None
+
+        deleted = await _run_prune_outbox(database=mock_db, retention_days=30)
+        assert deleted == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_outbox_handles_none_rowcount(self) -> None:
+        from bootstrap.workers import _run_prune_outbox
+
+        mock_db = MagicMock()
+        mock_scope = AsyncMock()
+        mock_session = AsyncMock()
+        mock_scope.session = mock_session
+
+        mock_result = MagicMock()
+        mock_result.rowcount = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_db.new_scope.return_value.__aenter__.return_value = mock_scope
+        mock_db.new_scope.return_value.__aexit__.return_value = None
+
+        deleted = await _run_prune_outbox(database=mock_db, retention_days=7)
+        assert deleted == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_outbox_disposes_database_when_owned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bootstrap.workers import _run_prune_outbox
+
+        mock_db = MagicMock()
+        mock_db.dispose = AsyncMock()
+        mock_scope = AsyncMock()
+        mock_session = AsyncMock()
+        mock_scope.session = mock_session
+        mock_result = MagicMock()
+        mock_result.rowcount = 2
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_db.new_scope.return_value.__aenter__.return_value = mock_scope
+        mock_db.new_scope.return_value.__aexit__.return_value = None
+
+        monkeypatch.setattr("bootstrap.workers.Database", lambda url: mock_db)
+
+        deleted = await _run_prune_outbox(database=None, retention_days=14)
+        assert deleted == 2
+        assert mock_db.dispose.called

@@ -100,3 +100,99 @@ async def test_transaction_rollback_leaves_no_outbox_events(
     # Verify 0 outbox events were written
     events_count = await count(admin_engine, "outbox_events", tenant_id=test_tenant_id)
     assert events_count == 0
+
+
+async def test_prune_published_outbox_events_against_postgresql(
+    database_handle: Database, admin_engine: AsyncEngine
+) -> None:
+    """Verifies against real PostgreSQL that only eligible published events are pruned."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import insert
+
+    from bootstrap.workers import _run_prune_outbox
+    from shared.infrastructure.db.tables import outbox_events, tenants
+
+    tenant_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    old_published_id = uuid.uuid4()
+    recent_published_id = uuid.uuid4()
+    pending_id = uuid.uuid4()
+
+    # Seed tenant first to satisfy foreign key constraint
+    async with database_handle.new_scope() as scope:
+        await scope.session.execute(
+            insert(tenants).values(
+                id=tenant_id,
+                slug=f"prune-t-{tenant_id.hex[:6]}",
+                name="Prune Tenant",
+                status="ACTIVE",
+                version=1,
+            )
+        )
+        await scope.commit()
+
+    # Seed 3 distinct outbox events:
+    # 1. Eligible old published event (20 days old)
+    # 2. Ineligible recent published event (2 days old)
+    # 3. Ineligible pending event (not published)
+    async with database_handle.new_scope() as scope:
+        await scope.session.execute(
+            insert(outbox_events),
+            [
+                {
+                    "id": old_published_id,
+                    "tenant_id": tenant_id,
+                    "event_type": "TenantRegistered",
+                    "aggregate_type": "tenant",
+                    "aggregate_id": tenant_id,
+                    "correlation_id": "corr-old",
+                    "occurred_at": now - timedelta(days=21),
+                    "status": "PUBLISHED",
+                    "payload": {},
+                    "created_at": now - timedelta(days=21),
+                    "published_at": now - timedelta(days=20),
+                },
+                {
+                    "id": recent_published_id,
+                    "tenant_id": tenant_id,
+                    "event_type": "TenantRegistered",
+                    "aggregate_type": "tenant",
+                    "aggregate_id": tenant_id,
+                    "correlation_id": "corr-recent",
+                    "occurred_at": now - timedelta(days=3),
+                    "status": "PUBLISHED",
+                    "payload": {},
+                    "created_at": now - timedelta(days=3),
+                    "published_at": now - timedelta(days=2),
+                },
+                {
+                    "id": pending_id,
+                    "tenant_id": tenant_id,
+                    "event_type": "TenantRegistered",
+                    "aggregate_type": "tenant",
+                    "aggregate_id": tenant_id,
+                    "correlation_id": "corr-pending",
+                    "occurred_at": now - timedelta(days=21),
+                    "status": "PENDING",
+                    "payload": {},
+                    "created_at": now - timedelta(days=21),
+                    "published_at": None,
+                },
+            ],
+        )
+        await scope.commit()
+
+    # Execute pruning with 14-day threshold
+    deleted = await _run_prune_outbox(database=database_handle, retention_days=14)
+    assert deleted == 1
+
+    # Verify PostgreSQL state: old published event pruned, others retained
+    rem_old = await count(admin_engine, "outbox_events", id=old_published_id)
+    rem_recent = await count(admin_engine, "outbox_events", id=recent_published_id)
+    rem_pending = await count(admin_engine, "outbox_events", id=pending_id)
+
+    assert rem_old == 0
+    assert rem_recent == 1
+    assert rem_pending == 1
