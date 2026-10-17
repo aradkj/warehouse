@@ -23,7 +23,78 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-EXPECTED_HEAD_REVISION: str = "0010_durable_fulfillment"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def get_current_head_revision(
+    alembic_ini_path: Path | str | None = None,
+    migrations_dir: Path | str | None = None,
+) -> str:
+    """Resolve the latest Alembic migration head revision offline from migration scripts.
+
+    Guarantees:
+    - Zero network or database access: inspects migration script graph on disk.
+    - Resolves alembic.ini or migrations directory relative to codebase / environment.
+    - Asserts that exactly one migration head exists (single linear history).
+    - Fails closed if multiple heads exist or if no migration head is found.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    if alembic_ini_path is not None or migrations_dir is not None:
+        ini_path = Path(alembic_ini_path) if alembic_ini_path else None
+        mig_dir = Path(migrations_dir) if migrations_dir else None
+        if ini_path and ini_path.exists():
+            config = Config(str(ini_path))
+        elif mig_dir and mig_dir.exists():
+            config = Config()
+            config.set_main_option("script_location", str(mig_dir))
+        else:
+            raise FileNotFoundError(
+                f"Could not locate alembic.ini or migrations directory at specified path: {ini_path or mig_dir}."
+            )
+    else:
+        ini_path = REPO_ROOT / "alembic.ini"
+        mig_dir = REPO_ROOT / "migrations"
+        if ini_path.exists():
+            config = Config(str(ini_path))
+        elif mig_dir.exists():
+            config = Config()
+            config.set_main_option("script_location", str(mig_dir))
+        else:
+            cwd_ini = Path("alembic.ini")
+            cwd_mig = Path("migrations")
+            if cwd_ini.exists():
+                config = Config(str(cwd_ini))
+            elif cwd_mig.exists():
+                config = Config()
+                config.set_main_option("script_location", str(cwd_mig))
+            else:
+                raise FileNotFoundError(
+                    f"Could not locate alembic.ini or migrations directory. Checked {ini_path} and {mig_dir}."
+                )
+
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    if not heads:
+        raise RuntimeError("No Alembic migration heads found in migration scripts directory.")
+    if len(heads) > 1:
+        raise RuntimeError(
+            f"Multiple Alembic migration heads detected: {heads}. Expected a single linear migration head."
+        )
+    return heads[0]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily resolve module attributes (PEP 562).
+
+    Avoids eager head resolution and disk inspection on initial module import,
+    preventing side effects in environments where migrations are not present.
+    """
+    if name == "EXPECTED_HEAD_REVISION":
+        return get_current_head_revision()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 MAINTENANCE_DATABASES: tuple[str, ...] = ("postgres", "template0", "template1")
 
@@ -135,9 +206,13 @@ def run_restore(
     *,
     allow_unverified: bool = False,
     confirm_destructive_restore: bool = False,
-    expected_revision: str | None = EXPECTED_HEAD_REVISION,
+    expected_revision: str | None = None,
 ) -> bool:
     """Execute restoration and verify post-restore database integrity."""
+    target_revision = (
+        expected_revision if expected_revision is not None else get_current_head_revision()
+    )
+
     if not backup_file.exists():
         raise FileNotFoundError(f"Backup file not found: {backup_file}")
 
@@ -249,7 +324,7 @@ def run_restore(
 
     # Verification queries
     verify_queries = [
-        ("Checking Alembic migration table", "SELECT version_num FROM alembic_version LIMIT 1;"),
+        ("Checking Alembic migration table", "SELECT version_num FROM alembic_version;"),
         (
             "Checking Inventory Item available stock non-negative invariant",
             "SELECT count(*) FROM inventory_items WHERE on_hand - reserved < 0;",
@@ -262,20 +337,27 @@ def run_restore(
         res = _exec_psql(["-d", db_name, "-t", "-c", query])
         if res.returncode != 0:
             raise RuntimeError(f"Post-restore verification query failed ({desc}): {res.stderr}")
-        val = res.stdout.strip()
-        print(f"  [OK] {desc}: result = {val}")
+        raw_val = res.stdout.strip()
+        print(f"  [OK] {desc}: result = {raw_val}")
 
         if "alembic" in desc.lower():
-            if not val:
+            revisions = [line.strip() for line in raw_val.splitlines() if line.strip()]
+            if not revisions:
                 raise AssertionError("FATAL: alembic_version table is empty after restore!")
-            if expected_revision and val != expected_revision:
+            if len(revisions) > 1:
                 raise AssertionError(
-                    f"FATAL: Restored Alembic revision '{val}' does not match expected revision '{expected_revision}'!"
+                    f"FATAL: Multiple Alembic revisions found in restored database: {revisions}. "
+                    f"Expected single linear head '{target_revision}'!"
+                )
+            val = revisions[0]
+            if target_revision and val != target_revision:
+                raise AssertionError(
+                    f"FATAL: Restored Alembic revision '{val}' does not match expected revision '{target_revision}'!"
                 )
         elif "invariant" in desc.lower():
-            if int(val) > 0:
+            if int(raw_val) > 0:
                 raise AssertionError(
-                    f"FATAL: Invariant violated after restore: {val} rows with negative available stock!"
+                    f"FATAL: Invariant violated after restore: {raw_val} rows with negative available stock!"
                 )
 
     print("Database restoration and integrity verification SUCCESSFUL!")
@@ -309,8 +391,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--expected-revision",
-        default=EXPECTED_HEAD_REVISION,
-        help="Expected Alembic revision after restoration",
+        default=None,
+        help="Expected Alembic revision after restoration (defaults to current codebase head)",
     )
 
     args = parser.parse_args()

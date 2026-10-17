@@ -148,3 +148,115 @@ def test_run_restore_rejects_maintenance_databases() -> None:
                 ValueError, match="Refusing to restore over system maintenance/template database"
             ):
                 run_restore(sql_file, target_url, confirm_destructive_restore=True)
+
+
+def test_get_current_head_revision_resolves_codebase_head() -> None:
+    from scripts.restore_postgres import EXPECTED_HEAD_REVISION, get_current_head_revision
+
+    head = get_current_head_revision()
+    assert head == "0011_tenant_composite_fks"
+    assert EXPECTED_HEAD_REVISION == "0011_tenant_composite_fks"
+
+
+def test_get_current_head_revision_rejects_missing_directory(tmp_path: Path) -> None:
+    from scripts.restore_postgres import get_current_head_revision
+
+    non_existent_ini = tmp_path / "non_existent.ini"
+    non_existent_mig = tmp_path / "non_existent_mig"
+    with pytest.raises(FileNotFoundError, match=r"Could not locate alembic\.ini or migrations"):
+        get_current_head_revision(
+            alembic_ini_path=non_existent_ini, migrations_dir=non_existent_mig
+        )
+
+
+def test_get_current_head_revision_rejects_multiple_heads(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from scripts.restore_postgres import get_current_head_revision
+
+    alembic_script = importlib.import_module("alembic.script")
+    monkeypatch.setattr(
+        alembic_script.ScriptDirectory, "get_heads", lambda self: ["head_rev_1", "head_rev_2"]
+    )
+    with pytest.raises(RuntimeError, match="Multiple Alembic migration heads detected"):
+        get_current_head_revision()
+
+
+def test_get_current_head_revision_rejects_empty_heads(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from scripts.restore_postgres import get_current_head_revision
+
+    alembic_script = importlib.import_module("alembic.script")
+    monkeypatch.setattr(alembic_script.ScriptDirectory, "get_heads", lambda self: [])
+    with pytest.raises(RuntimeError, match="No Alembic migration heads found"):
+        get_current_head_revision()
+
+
+def test_run_restore_validates_alembic_revision_match_and_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+
+    from scripts.restore_postgres import compute_sha256, run_restore
+
+    sql_file = tmp_path / "backup.sql"
+    sql_file.write_text("SELECT 1;", encoding="utf-8")
+    actual_sha = compute_sha256(sql_file)
+    sha_file = tmp_path / "backup.sql.sha256"
+    sha_file.write_text(f"{actual_sha}  backup.sql\n", encoding="utf-8")
+
+    target_url = "postgresql://arad:arad@localhost:5432/test_restore_mock"
+
+    class MockCompletedProcess:
+        def __init__(self, stdout: str = "", returncode: int = 0) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = returncode
+
+    # Mock subprocess.run to simulate psql calls
+    alembic_output = ["0011_tenant_composite_fks"]
+
+    def fake_subprocess_run(
+        cmd: list[str], *args: object, **kwargs: object
+    ) -> MockCompletedProcess:
+        cmd_str = " ".join(str(c) for c in cmd)
+        if "alembic_version" in cmd_str:
+            return MockCompletedProcess(stdout="\n".join(alembic_output))
+        if "inventory_items" in cmd_str:
+            return MockCompletedProcess(stdout="0")
+        if "orders" in cmd_str or "products" in cmd_str:
+            return MockCompletedProcess(stdout="5")
+        return MockCompletedProcess(stdout="", returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    # 1. Matching revision succeeds
+    alembic_output = ["0011_tenant_composite_fks"]
+    assert run_restore(sql_file, target_url) is True
+
+    # 2. Explicit expected revision matches
+    alembic_output = ["custom_branch_head"]
+    assert run_restore(sql_file, target_url, expected_revision="custom_branch_head") is True
+
+    # 3. Mismatched revision fails
+    alembic_output = ["0010_durable_fulfillment"]
+    with pytest.raises(
+        AssertionError,
+        match="FATAL: Restored Alembic revision '0010_durable_fulfillment' does not match expected revision '0011_tenant_composite_fks'",
+    ):
+        run_restore(sql_file, target_url)
+
+    # 4. Empty alembic_version table fails
+    alembic_output = [""]
+    with pytest.raises(
+        AssertionError, match="FATAL: alembic_version table is empty after restore!"
+    ):
+        run_restore(sql_file, target_url)
+
+    # 5. Multiple heads in alembic_version table fails
+    alembic_output = ["head_a", "head_b"]
+    with pytest.raises(
+        AssertionError, match="FATAL: Multiple Alembic revisions found in restored database"
+    ):
+        run_restore(sql_file, target_url)
