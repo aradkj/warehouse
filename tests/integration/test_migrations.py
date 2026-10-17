@@ -180,7 +180,7 @@ class TestMigrations:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-        assert version == "0010_durable_fulfillment"
+        assert version == "0011_tenant_composite_fks"
 
     async def test_the_models_and_the_migration_agree(self, scratch_database: AsyncEngine) -> None:
         """Autogenerate must find no difference between metadata and the migrated schema."""
@@ -212,32 +212,40 @@ class TestMigrations:
         remaining = await table_names(scratch_database)
         assert remaining == {"alembic_version"}, f"downgrade left tables behind: {remaining}"
 
-        # 2. Upgrade to head (0010_durable_fulfillment)
+        # 2. Upgrade to head (0011_tenant_composite_fks)
         await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "head")
         assert await table_names(scratch_database) == EXPECTED_TABLES
 
-        # 3. Migration 0010 can downgrade to 0009
+        # 3. Migration 0011 can downgrade to 0010
+        await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "0010_durable_fulfillment")
+        async with scratch_database.connect() as connection:
+            v_0010 = (
+                await connection.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar()
+            assert v_0010 == "0010_durable_fulfillment"
+
+        # 4. Migration 0010 can downgrade to 0009
         await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "0009_harden_rls_and_roles")
         tables_at_0009 = await table_names(scratch_database)
         assert "fulfillments" not in tables_at_0009
         assert "fulfillment_tasks" not in tables_at_0009
 
-        # 4. Attempting downgrade on 0009 is strictly refused with a security exception
+        # 5. Attempting downgrade on 0009 is strictly refused with a security exception
         with pytest.raises(
             RuntimeError,
             match="Downgrading migration 0009_harden_rls_and_roles is strictly prohibited",
         ):
             await asyncio.to_thread(_run_alembic, "downgrade", scratch_url, "-1")
 
-        # 5. Upgrade back to head
+        # 6. Upgrade back to head
         await asyncio.to_thread(_run_alembic, "upgrade", scratch_url, "head")
 
-        # 6. Schema, version, and policies remain consistent and secure after rejected downgrade
+        # 7. Schema, version, and policies remain consistent and secure after rejected downgrade
         async with scratch_database.connect() as connection:
             version = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar()
-            assert version == "0010_durable_fulfillment"
+            assert version == "0011_tenant_composite_fks"
 
             # Verify no policies retain bypass_rls
             result = await connection.execute(
@@ -317,6 +325,13 @@ class TestSchemaGuarantees:
             "fk_orders_tenant_id_tenants",
             "fk_order_lines_order_id_orders",
             "fk_idempotency_records_tenant_id_tenants",
+            "fk_fulfillments_tenant_id_tenants",
+            "fk_fulfillments_tenant_id_order_id_orders",
+            "fk_fulfillments_tenant_id_warehouse_id_warehouses",
+            "fk_fulfillment_tasks_tenant_id_tenants",
+            "fk_fulfillment_tasks_tenant_id_fulfillment_id_fulfillments",
+            "fk_fulfillment_tasks_tenant_id_warehouse_id_warehouses",
+            "fk_fulfillment_tasks_tenant_id_sku_id_skus",
         ):
             assert expected in checks, f"missing foreign key {expected}"
 
@@ -366,11 +381,36 @@ class TestSchemaGuarantees:
             "uq_tenants_slug",
             "uq_products_tenant_id_slug",
             "uq_skus_tenant_id_code",
+            "uq_skus_tenant_id_id",
             "uq_warehouses_tenant_id_code",
+            "uq_warehouses_tenant_id_id",
+            "uq_orders_tenant_id_id",
+            "uq_fulfillments_tenant_id_id",
             "uq_inventory_items_tenant_id_warehouse_id_sku_id",
             "uq_order_lines_order_id_line_number",
         ):
             assert expected in checks, f"missing unique constraint {expected}"
+
+    async def test_migration_safe_role_formatting(self, database: AsyncEngine) -> None:
+        """Verifies that format('%I', ...) safely quotes role identifiers without SQL injection."""
+        async with database.connect() as conn:
+            # Test normal role name
+            res_normal = await conn.execute(
+                text("SELECT format('GRANT SELECT ON table1 TO %I', CAST(:role AS text))"),
+                {"role": "arad_app"},
+            )
+            assert res_normal.scalar() == "GRANT SELECT ON table1 TO arad_app"
+
+            # Test role with quotes, spaces, dashes, or semicolon SQL injection attempt
+            malicious_role = "arad_app; DROP TABLE orders; --"
+            res_safe = await conn.execute(
+                text("SELECT format('GRANT SELECT ON table1 TO %I', CAST(:role AS text))"),
+                {"role": malicious_role},
+            )
+            # %I wraps the whole string in double-quotes, treating it as a literal identifier name
+            assert (
+                res_safe.scalar() == 'GRANT SELECT ON table1 TO "arad_app; DROP TABLE orders; --"'
+            )
 
     async def test_idempotency_is_unique_per_tenant_and_key(self, database: AsyncEngine) -> None:
         checks = await self.constraints(database, "u")

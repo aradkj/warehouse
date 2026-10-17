@@ -165,7 +165,7 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
 
-    # 4. Grant DML privileges to application runtime role
+    # 4. Grant DML privileges to application runtime role using safe identifier quoting
     app_role = os.environ.get("ARAD_APP_DB_USER", "arad_app")
     connection = op.get_bind()
     role_exists = connection.execute(
@@ -173,9 +173,15 @@ def upgrade() -> None:
         {"role": app_role},
     ).scalar_one()
     if role_exists:
-        op.execute(
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON fulfillments, fulfillment_tasks TO {app_role}"
-        )
+        grant_sql = connection.execute(
+            sa.text(
+                "SELECT format("
+                "'GRANT SELECT, INSERT, UPDATE, DELETE ON fulfillments, fulfillment_tasks TO %I', "
+                "CAST(:role AS text))"
+            ),
+            {"role": app_role},
+        ).scalar_one()
+        op.execute(grant_sql)
 
 
 def downgrade() -> None:

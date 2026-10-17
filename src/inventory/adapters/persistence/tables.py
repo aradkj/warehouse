@@ -66,6 +66,7 @@ warehouses = Table(
     Column("updated_at", TimestampCol, nullable=False, server_default=func.now()),
     Column("version", Integer, nullable=False),
     UniqueConstraint("tenant_id", "code", name="uq_warehouses_tenant_id_code"),
+    UniqueConstraint("tenant_id", "id", name="uq_warehouses_tenant_id_id"),
     CheckConstraint("version >= 1", name="version_positive"),
     CheckConstraint("code ~ '^[A-Z0-9][A-Z0-9._-]{1,31}$'", name="code_format"),
     CheckConstraint("length(btrim(name)) BETWEEN 1 AND 160", name="name_length"),

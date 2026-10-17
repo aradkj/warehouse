@@ -423,3 +423,130 @@ async def test_fulfillment_save_optimistic_concurrency(database_handle: Database
         loaded.allocate()
         await uow_success.fulfillments.save(loaded, expected_version=expected_v)
         await uow_success.commit()
+
+
+async def test_database_rejects_cross_tenant_order_reference(database_handle: Database) -> None:
+    """PostgreSQL foreign key constraint strictly rejects fulfillment referencing another tenant's order."""
+    t1 = uuid.uuid4()
+    t2 = uuid.uuid4()
+
+    # Seed Tenant 1
+    w1 = uuid.uuid4()
+    p1 = uuid.uuid4()
+    s1 = uuid.uuid4()
+    o1 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t1, o1, w1, p1, s1)
+        await seed_scope.commit()
+
+    # Seed Tenant 2
+    w2 = uuid.uuid4()
+    p2 = uuid.uuid4()
+    s2 = uuid.uuid4()
+    o2 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t2, o2, w2, p2, s2)
+        await seed_scope.commit()
+
+    # Tenant 1 attempts to create a fulfillment referencing Tenant 2's order
+    async with database_handle.new_scope(tenant_id=str(t1)) as scope:
+        f_id = uuid.uuid4()
+        with pytest.raises(
+            sa.exc.IntegrityError, match="fk_fulfillments_tenant_id_order_id_orders"
+        ):
+            await scope.session.execute(
+                sa.text(
+                    "INSERT INTO fulfillments (id, tenant_id, order_id, warehouse_id, status, version) "
+                    "VALUES (:id, :t1, :o2, :w1, 'PENDING', 1)"
+                ),
+                {"id": f_id, "t1": t1, "o2": o2, "w1": w1},
+            )
+            await scope.commit()
+
+
+async def test_database_rejects_cross_tenant_warehouse_reference(database_handle: Database) -> None:
+    """PostgreSQL foreign key constraint strictly rejects fulfillment referencing another tenant's warehouse."""
+    t1 = uuid.uuid4()
+    t2 = uuid.uuid4()
+
+    # Seed Tenant 1
+    w1 = uuid.uuid4()
+    p1 = uuid.uuid4()
+    s1 = uuid.uuid4()
+    o1 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t1, o1, w1, p1, s1)
+        await seed_scope.commit()
+
+    # Seed Tenant 2
+    w2 = uuid.uuid4()
+    p2 = uuid.uuid4()
+    s2 = uuid.uuid4()
+    o2 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t2, o2, w2, p2, s2)
+        await seed_scope.commit()
+
+    # Tenant 1 attempts to create a fulfillment referencing Tenant 2's warehouse
+    async with database_handle.new_scope(tenant_id=str(t1)) as scope:
+        f_id = uuid.uuid4()
+        with pytest.raises(
+            sa.exc.IntegrityError, match="fk_fulfillments_tenant_id_warehouse_id_warehouses"
+        ):
+            await scope.session.execute(
+                sa.text(
+                    "INSERT INTO fulfillments (id, tenant_id, order_id, warehouse_id, status, version) "
+                    "VALUES (:id, :t1, :o1, :w2, 'PENDING', 1)"
+                ),
+                {"id": f_id, "t1": t1, "o1": o1, "w2": w2},
+            )
+            await scope.commit()
+
+
+async def test_database_rejects_cross_tenant_task_sku_reference(database_handle: Database) -> None:
+    """PostgreSQL foreign key constraint strictly rejects fulfillment task referencing another tenant's SKU."""
+    t1 = uuid.uuid4()
+    t2 = uuid.uuid4()
+
+    w1 = uuid.uuid4()
+    p1 = uuid.uuid4()
+    s1 = uuid.uuid4()
+    o1 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t1, o1, w1, p1, s1)
+        await seed_scope.commit()
+
+    w2 = uuid.uuid4()
+    p2 = uuid.uuid4()
+    s2 = uuid.uuid4()
+    o2 = uuid.uuid4()
+    async with database_handle.new_scope() as seed_scope:
+        await _seed_prerequisites(seed_scope, t2, o2, w2, p2, s2)
+        await seed_scope.commit()
+
+    # Create valid fulfillment for Tenant 1
+    f_id = uuid.uuid4()
+    async with database_handle.new_scope(tenant_id=str(t1)) as scope:
+        await scope.session.execute(
+            sa.text(
+                "INSERT INTO fulfillments (id, tenant_id, order_id, warehouse_id, status, version) "
+                "VALUES (:id, :t1, :o1, :w1, 'PENDING', 1)"
+            ),
+            {"id": f_id, "t1": t1, "o1": o1, "w1": w1},
+        )
+        await scope.commit()
+
+    # Tenant 1 attempts to create a task referencing Tenant 2's SKU (s2)
+    async with database_handle.new_scope(tenant_id=str(t1)) as scope:
+        task_id = uuid.uuid4()
+        with pytest.raises(
+            sa.exc.IntegrityError, match="fk_fulfillment_tasks_tenant_id_sku_id_skus"
+        ):
+            await scope.session.execute(
+                sa.text(
+                    "INSERT INTO fulfillment_tasks (id, tenant_id, fulfillment_id, warehouse_id, sku_id, quantity) "
+                    "VALUES (:id, :t1, :f_id, :w1, :s2, 5)"
+                ),
+                {"id": task_id, "t1": t1, "f_id": f_id, "w1": w1, "s2": s2},
+            )
+            await scope.commit()

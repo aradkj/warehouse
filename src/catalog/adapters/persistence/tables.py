@@ -109,6 +109,7 @@ skus = Table(
     Column("updated_at", TimestampCol, nullable=False, server_default=func.now()),
     Column("version", Integer, nullable=False),
     UniqueConstraint("tenant_id", "code", name="uq_skus_tenant_id_code"),
+    UniqueConstraint("tenant_id", "id", name="uq_skus_tenant_id_id"),
     CheckConstraint("version >= 1", name="version_positive"),
     CheckConstraint("code ~ '^[A-Z0-9][A-Z0-9._-]{1,63}$'", name="code_format"),
     CheckConstraint("unit_price_minor >= 0", name="unit_price_non_negative"),

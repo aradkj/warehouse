@@ -61,6 +61,7 @@ orders = Table(
         "status <> 'CANCELLED' OR (cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL)",
         name="cancelled_has_reason",
     ),
+    UniqueConstraint("tenant_id", "id", name="uq_orders_tenant_id_id"),
 )
 
 Index(
