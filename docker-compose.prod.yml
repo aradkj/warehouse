@@ -132,7 +132,7 @@ services:
       ARAD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arad}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_ENVIRONMENT: production
       ARAD_APP_DB_USER: ${ARAD_APP_DB_USER:-arad_app}
-      ARAD_APP_DB_PASSWORD: ${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}
+      ARAD_APP_DB_PASSWORD: ${ARAD_APP_DB_PASSWORD:?Application database password required}
     command: ["alembic", "upgrade", "head"]
     networks:
       - backend
@@ -162,7 +162,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
       ARAD_LOG_JSON: "true"
@@ -211,7 +211,7 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_ENVIRONMENT: production
     command: ["python", "-m", "bootstrap.workers", "relay"]
@@ -250,7 +250,7 @@ services:
       elasticsearch:
         condition: service_healthy
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_ELASTICSEARCH_URL: http://elasticsearch:9200
       ARAD_ENVIRONMENT: production
@@ -290,7 +290,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/${POSTGRES_DB:-arad}
+      ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_REDIS_URL: redis://redis:6379/0
       ARAD_ENVIRONMENT: production

@@ -24,14 +24,20 @@ from shared.infrastructure.db.session import Database
 logger = logging.getLogger(__name__)
 
 
-async def _run_expire_reservations() -> int:
+async def _run_expire_reservations(
+    database: Database | None = None,
+    settings: Any | None = None,
+) -> int:
     """Execute reservation expiration sweep using application layer per active tenant."""
     from sqlalchemy import text
 
     from identity.domain.principal import Principal
 
-    settings = get_settings()
-    database = Database(settings.database_url)
+    effective_settings = settings or get_settings()
+    owns_database = False
+    if database is None:
+        database = Database(effective_settings.database_url)
+        owns_database = True
     try:
         # Enumerate active tenants without bypass (tenants table is global, un-scoped)
         async with database.new_scope() as list_scope:
@@ -45,7 +51,7 @@ async def _run_expire_reservations() -> int:
             # Process each tenant strictly within its own isolated transaction and RLS context
             async with database.new_scope(tenant_id=str(tid)) as tenant_scope:
                 use_cases = build_use_cases(
-                    settings=settings,
+                    settings=effective_settings,
                     clock=SystemClock(),
                     scope=tenant_scope,
                 )
@@ -66,7 +72,7 @@ async def _run_expire_reservations() -> int:
                 )
                 command = ExpireReservationsCommand(
                     context=context,
-                    limit=settings.reservation_expiry_batch_size,
+                    limit=effective_settings.reservation_expiry_batch_size,
                 )
                 outcome = await use_cases.expire_reservations(command)
                 expired_count = outcome.view
@@ -78,7 +84,8 @@ async def _run_expire_reservations() -> int:
             logger.info("Reservation sweeper expired %d reservations total.", total_expired)
         return total_expired
     finally:
-        await database.dispose()
+        if owns_database:
+            await database.dispose()
 
 
 @celery_app.task(
@@ -93,6 +100,60 @@ def expire_reservations_task(self: Any) -> int:
         return asyncio.run(_run_expire_reservations())
     except Exception as exc:
         logger.error("Error in expire_reservations_task: %s", exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
+
+
+async def _run_prune_outbox(
+    database: Database | None = None,
+    retention_days: int = 14,
+) -> int:
+    """Prune already-PUBLISHED outbox events older than retention_days threshold."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    from shared.infrastructure.db.tables import outbox_events
+
+    effective_settings = get_settings()
+    owns_database = False
+    if database is None:
+        database = Database(effective_settings.database_url)
+        owns_database = True
+
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    try:
+        async with database.new_scope() as scope:
+            stmt = delete(outbox_events).where(
+                (outbox_events.c.status == "PUBLISHED") & (outbox_events.c.published_at <= cutoff)
+            )
+            res = await scope.session.execute(stmt)
+            await scope.commit()
+            deleted = res.rowcount or 0
+            if deleted > 0:
+                logger.info(
+                    "Pruned %d published outbox events older than %d days (%s)",
+                    deleted,
+                    retention_days,
+                    cutoff,
+                )
+            return deleted
+    finally:
+        if owns_database:
+            await database.dispose()
+
+
+@celery_app.task(
+    name="outbox.prune_published_events_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def prune_published_outbox_task(self: Any, retention_days: int = 14) -> int:
+    """Celery periodic task to prune published outbox events older than retention threshold."""
+    try:
+        return asyncio.run(_run_prune_outbox(retention_days=retention_days))
+    except Exception as exc:
+        logger.error("Error in prune_published_outbox_task: %s", exc, exc_info=True)
         raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
 
 

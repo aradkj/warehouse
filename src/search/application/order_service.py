@@ -47,12 +47,25 @@ class SearchOrdersService:
         sku: str | None,
         customer: str | None,
         warehouse: str | None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         sort_by: str,
         sort_order: str,
     ) -> str:
+        q_norm = (q or "").strip()
+        status_norm = (status or "").strip().upper()
+        sku_norm = (sku or "").strip().upper()
+        cust_norm = (customer or "").strip()
+        wh_norm = (warehouse or "").strip()
+        date_from_norm = (date_from or "").strip()
+        date_to_norm = (date_to or "").strip()
+        sort_by_norm = (sort_by or "").strip().lower()
+        sort_order_norm = (sort_order or "").strip().lower()
+
         normalized = (
-            f"q={q or ''}&status={status or ''}&sku={sku or ''}&cust={customer or ''}&"
-            f"wh={warehouse or ''}&sort={sort_by}:{sort_order}"
+            f"q={q_norm}&status={status_norm}&sku={sku_norm}&cust={cust_norm}&"
+            f"wh={wh_norm}&dfrom={date_from_norm}&dto={date_to_norm}&"
+            f"sort={sort_by_norm}:{sort_order_norm}"
         )
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
@@ -121,6 +134,8 @@ class SearchOrdersService:
                     sku=sku,
                     customer=customer,
                     warehouse=warehouse,
+                    date_from=date_from,
+                    date_to=date_to,
                     sort_by=sort_by_norm,
                     sort_order=sort_order_norm,
                 )
@@ -179,6 +194,8 @@ class SearchOrdersService:
                         sku=sku,
                         customer=customer,
                         warehouse=warehouse,
+                        date_from=date_from,
+                        date_to=date_to,
                         sort_by=sort_by_norm,
                         sort_order=sort_order_norm,
                     ),

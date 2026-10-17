@@ -46,6 +46,11 @@ def test_database_url() -> str:
     return os.environ.get("ARAD_TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 
 
+# Ensure any component or worker querying get_settings() during tests uses the test database
+os.environ.setdefault("ARAD_DATABASE_URL", test_database_url())
+os.environ.setdefault("ARAD_ENVIRONMENT", "test")
+
+
 # ---------------------------------------------------------------------------
 # framework-free fixtures
 # ---------------------------------------------------------------------------

@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = 1800
     db_statement_timeout_ms: int = 15_000
     db_echo: bool = False
+    app_db_user: str = Field(
+        default="arad_app",
+        description="Least-privilege runtime application database username.",
+    )
+    app_db_password: str | None = Field(
+        default=None,
+        description="Least-privilege runtime application database password.",
+    )
+    postgres_password: str | None = Field(
+        default=None,
+        description="PostgreSQL administrator bootstrap password.",
+    )
 
     # -- runtime -----------------------------------------------------------
     environment: str = "local"
@@ -208,6 +220,38 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "In production, ARAD_AUTH_JWT_SECRET must be configured "
                     "with a secure, non-placeholder key of at least 32 characters"
+                )
+
+            # Independent credential validation: application password cannot equal admin password
+            if (
+                self.app_db_password is not None
+                and self.postgres_password is not None
+                and self.app_db_password == self.postgres_password
+            ):
+                raise ValueError(
+                    "In production, application database password and administrator "
+                    "password must be independently configured"
+                )
+
+            # Prevent using the bootstrap superuser account in production runtime database URL
+            from urllib.parse import urlparse
+
+            cleaned_url = self.database_url.replace("postgresql+asyncpg://", "postgresql://")
+            parsed_db = urlparse(cleaned_url)
+            if parsed_db.username and parsed_db.username.lower() in ("postgres", "root"):
+                raise ValueError(
+                    "In production, application services must connect via a dedicated "
+                    "least-privilege role, not a database superuser"
+                )
+            if (
+                self.postgres_password is not None
+                and parsed_db.password is not None
+                and parsed_db.password == self.postgres_password
+                and parsed_db.username not in ("arad_app", self.app_db_user)
+            ):
+                raise ValueError(
+                    "In production, application database connection must not "
+                    "use the administrator credentials"
                 )
         return self
 

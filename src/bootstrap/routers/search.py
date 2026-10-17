@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from bootstrap.dependencies import (
     get_admin_context,
+    get_audit_search_service,
     get_order_search_service,
     get_reconciliation_service,
     get_reindexing_service,
@@ -21,6 +22,7 @@ from bootstrap.dependencies import (
 )
 from bootstrap.schemas.common import ErrorResponse
 from bootstrap.schemas.search import (
+    AuditSearchPageResponse,
     OrderSearchPageResponse,
     ProductSearchPageResponse,
     ReconcileRequest,
@@ -29,6 +31,7 @@ from bootstrap.schemas.search import (
     ReindexResponse,
 )
 from identity.domain.principal import Principal
+from search.application.audit_service import SearchAuditService
 from search.application.order_service import SearchOrdersService
 from search.application.reconciliation import ReconciliationService
 from search.application.reindex import ReindexingService
@@ -181,6 +184,84 @@ async def search_orders(
         sort_order=sort_order,
     )
     return OrderSearchPageResponse.from_page_result(result)
+
+
+@router.get(
+    "/audit",
+    response_model=AuditSearchPageResponse,
+    summary="Search audit records across actor, action, resource, decision, and dates",
+    responses=ERROR_RESPONSES,
+)
+async def search_audit_logs(
+    context: Annotated[RequestContext, Depends(get_tenant_context)],
+    search_service: Annotated[SearchAuditService, Depends(get_audit_search_service)],
+    _principal: Annotated[Principal, Depends(require_permission("audit.events.read"))],
+    q: Annotated[
+        str | None,
+        Query(description="Free-text query across action, actor ID, resource, or decision reason."),
+    ] = None,
+    action: Annotated[
+        str | None,
+        Query(description="Filter by audit action name (e.g. order.create, product.archive)."),
+    ] = None,
+    actor_id: Annotated[
+        str | None,
+        Query(description="Filter by actor ID or user UUID."),
+    ] = None,
+    resource_type: Annotated[
+        str | None,
+        Query(description="Filter by resource type (e.g. order, product, inventory)."),
+    ] = None,
+    resource_id: Annotated[
+        str | None,
+        Query(description="Filter by resource identifier."),
+    ] = None,
+    date_from: Annotated[
+        str | None,
+        Query(description="Filter audit logs occurring on or after ISO timestamp."),
+    ] = None,
+    date_to: Annotated[
+        str | None,
+        Query(description="Filter audit logs occurring on or before ISO timestamp."),
+    ] = None,
+    page: Annotated[int, Query(ge=1, description="Page number.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100, description="Page size.")] = 20,
+    cursor: Annotated[
+        str | None,
+        Query(description="Opaque search_after pagination cursor."),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Query(ge=1, le=100, description="Page size with cursor pagination."),
+    ] = None,
+    sort_by: Annotated[
+        str,
+        Query(description="Sort field: occurred_at, action, resource_type, policy_decision."),
+    ] = "occurred_at",
+    sort_order: Annotated[
+        str,
+        Query(description="Sort direction: asc or desc."),
+    ] = "desc",
+) -> AuditSearchPageResponse:
+    """Execute tenant-safe audit log search with ABAC enforcement."""
+    effective_tenant_id = str(context.require_tenant())
+    result = await search_service.search(
+        tenant_id=effective_tenant_id,
+        q=q,
+        action=action,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+        cursor=cursor,
+        limit=limit,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return AuditSearchPageResponse.from_page_result(result)
 
 
 @router.post(

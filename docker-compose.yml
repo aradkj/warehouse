@@ -119,7 +119,7 @@ services:
         condition: service_healthy
 
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad_app:arad@postgres:5432/arad
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
       ARAD_LOG_JSON: "true"
@@ -137,6 +137,7 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
 
       ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
+      ARAD_AUTH_REQUIRED: "true"
 
     ports:
       - "8000:8000"
@@ -308,7 +309,7 @@ services:
         condition: service_healthy
 
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad_app:arad@postgres:5432/arad
       ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
       ARAD_REDIS_URL: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0
@@ -354,7 +355,7 @@ services:
         condition: service_healthy
 
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad_app:arad@postgres:5432/arad
       ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
       ARAD_REDIS_URL: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0
@@ -398,7 +399,7 @@ services:
         condition: service_healthy
 
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad_app:arad@postgres:5432/arad
       ARAD_CELERY_BROKER_URL: amqp://arad:arad@rabbitmq:5672//
       ARAD_RABBITMQ_URL: amqp://arad:arad@rabbitmq:5672//
       ARAD_REDIS_URL: redis://redis:6379/0
@@ -444,7 +445,7 @@ services:
         condition: service_healthy
 
     environment:
-      ARAD_DATABASE_URL: postgresql+asyncpg://arad:arad@postgres:5432/arad
+      ARAD_DATABASE_URL: postgresql+asyncpg://arad_app:arad@postgres:5432/arad
       ARAD_CELERY_BROKER_URL: amqp://arad:arad@rabbitmq:5672//
       ARAD_REDIS_URL: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0

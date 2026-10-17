@@ -1,5 +1,6 @@
 """Search application layer."""
 
+from search.application.audit_service import SearchAuditService
 from search.application.models import (
     AUDIT_INDEX_ALIAS,
     AUDIT_INDEX_MAPPINGS,
@@ -48,6 +49,7 @@ __all__ = [
     "ProductSearchProjector",
     "ReconciliationService",
     "ReindexingService",
+    "SearchAuditService",
     "SearchOrdersService",
     "SearchProductsService",
     "build_audit_document_id",

@@ -34,6 +34,7 @@ CATALOG_EVENT_TYPES: tuple[str, ...] = (
     "OrderShipped",
     "OrderBackordered",
     "FulfillmentFailed",
+    "AuditLogged",
 )
 
 

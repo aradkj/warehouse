@@ -194,3 +194,57 @@ async def test_admin_reindex_and_reconcile_authorization(client: httpx.AsyncClie
     )
     assert resp_reconcile_sys.status_code == 200
     assert "matched" in resp_reconcile_sys.json()
+
+
+async def test_search_audit_api_tenant_isolated(client: httpx.AsyncClient, app: object) -> None:
+    from search.application.models import AUDIT_INDEX_ALIAS, AuditSearchDocument
+
+    indexer = app.state.search_indexer
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    audit_id_a = str(uuid.uuid4())
+    audit_id_b = str(uuid.uuid4())
+
+    doc_a = AuditSearchDocument(
+        id=audit_id_a,
+        tenant_id=tenant_a,
+        actor_id="user-1",
+        action="order.cancel",
+        resource_type="order",
+        resource_id="ord-1",
+        policy_decision="ALLOW",
+        decision_reason="Customer authorized",
+    )
+    doc_b = AuditSearchDocument(
+        id=audit_id_b,
+        tenant_id=tenant_b,
+        actor_id="user-2",
+        action="order.cancel",
+        resource_type="order",
+        resource_id="ord-2",
+        policy_decision="DENY",
+        decision_reason="Insufficient permission",
+    )
+    await indexer.index(
+        (
+            doc_a.to_search_document(alias=AUDIT_INDEX_ALIAS),
+            doc_b.to_search_document(alias=AUDIT_INDEX_ALIAS),
+        )
+    )
+
+    # Tenant A requests audit search: sees only doc_a
+    resp_a = await client.get("/v1/search/audit?q=authorized", headers={"X-Tenant-Id": tenant_a})
+    assert resp_a.status_code == 200
+    data_a = resp_a.json()
+    assert data_a["total"] == 1
+    assert data_a["items"][0]["id"] == audit_id_a
+    assert data_a["items"][0]["actor_id"] == "user-1"
+    assert data_a["items"][0]["policy_decision"] == "ALLOW"
+
+    # Tenant B requests audit search: sees only doc_b
+    resp_b = await client.get("/v1/search/audit", headers={"X-Tenant-Id": tenant_b})
+    assert resp_b.status_code == 200
+    data_b = resp_b.json()
+    assert data_b["total"] == 1
+    assert data_b["items"][0]["id"] == audit_id_b
+    assert data_b["items"][0]["policy_decision"] == "DENY"

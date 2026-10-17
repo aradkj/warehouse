@@ -122,15 +122,18 @@ class InMemorySearchIndexer(SearchIndexer):
             if str(body.get("tenant_id")) != query.tenant_id:
                 continue
 
-            # 2. Status filter
-            if query.status and str(body.get("status")) != query.status:
-                continue
+            # 2. Status / Action filter
+            if query.status:
+                status_val = str(body.get("status") or body.get("action") or "")
+                if status_val != query.status:
+                    continue
 
-            # 3. Customer filter
+            # 3. Customer / Actor filter
             if query.customer:
                 cust_match = (
                     str(body.get("customer_id") or "") == query.customer
                     or str(body.get("customer_reference") or "") == query.customer
+                    or str(body.get("actor_id") or "") == query.customer
                 )
                 if not cust_match:
                     continue

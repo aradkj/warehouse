@@ -60,17 +60,67 @@ class SqlAlchemyAuditAdapter(AuditPort):
             occurred_at=entry.occurred_at,
             details=combined_details or None,
         )
+        from datetime import UTC, datetime
+
         from shared.infrastructure.db.session import SqlAlchemyTransactionScope
+        from shared.infrastructure.db.tables import outbox_events
+
+        outbox_stmt = None
+        if tenant_uuid is not None:
+            outbox_id = uuid.uuid4()
+            corr_id = entry.correlation_id or str(uuid.uuid4())
+            caus_id = entry.causation_id or str(audit_uuid)
+            payload = {
+                "audit_id": str(audit_uuid),
+                "tenant_id": str(tenant_uuid),
+                "actor_id": str(entry.actor_id),
+                "action": str(entry.action),
+                "resource_type": str(entry.resource_type),
+                "resource_id": str(entry.resource_id),
+                "correlation_id": corr_id,
+                "causation_id": caus_id,
+                "occurred_at": entry.occurred_at.isoformat(),
+                "policy_decision": combined_details.get("policy_decision", "ALLOW"),
+                "decision_reason": combined_details.get("decision_reason", "authorized"),
+                "details": combined_details,
+            }
+            headers = {
+                "correlation_id": corr_id,
+                "causation_id": caus_id,
+                "event_name": "AuditLogged",
+            }
+            outbox_stmt = sa.insert(outbox_events).values(
+                id=outbox_id,
+                tenant_id=tenant_uuid,
+                event_type="AuditLogged",
+                schema_version=1,
+                aggregate_type="AuditEntry",
+                aggregate_id=audit_uuid,
+                payload=payload,
+                headers=headers,
+                correlation_id=corr_id,
+                causation_id=caus_id,
+                occurred_at=entry.occurred_at,
+                status="PENDING",
+                attempt_count=0,
+                available_at=datetime.now(UTC),
+            )
 
         if isinstance(self._target, SqlAlchemyTransactionScope):
             if self._target._session is not None:
                 await self._target._session.execute(stmt)
+                if outbox_stmt is not None:
+                    await self._target._session.execute(outbox_stmt)
             else:
                 async with self._target:
                     await self._target.session.execute(stmt)
+                    if outbox_stmt is not None:
+                        await self._target.session.execute(outbox_stmt)
                     await self._target.commit()
         else:
             await self._target.execute(stmt)
+            if outbox_stmt is not None:
+                await self._target.execute(outbox_stmt)
 
     async def list_for_tenant(
         self, tenant_id: uuid.UUID, *, limit: int = 50

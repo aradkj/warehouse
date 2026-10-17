@@ -130,6 +130,13 @@ class CachePort(Protocol):
         """Release a distributed lock only if the token matches the current owner."""
         ...
 
+    async def validate_lock(self, key: str, token: str) -> bool:
+        """Validate whether the distributed lock is still held by the given token.
+
+        Returns True if held by token, False if held by another, expired, or unavailable.
+        """
+        ...
+
     async def get_or_set(
         self,
         key: str,

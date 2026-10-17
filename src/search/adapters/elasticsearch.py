@@ -351,7 +351,14 @@ class ElasticsearchIndexAdapter(SearchIndexer):
                 range_clause["gte"] = query.date_from
             if query.date_to:
                 range_clause["lte"] = query.date_to
-            filter_clauses.append({"range": {"created_at": range_clause}})
+            date_field = "occurred_at" if query.index_alias == "audit_logs" else "created_at"
+            filter_clauses.append({"range": {date_field: range_clause}})
+
+        if query.index_alias == "audit_logs":
+            if query.status:
+                filter_clauses.append({"term": {"action": query.status}})
+            if query.customer:
+                filter_clauses.append({"term": {"actor_id": query.customer}})
 
         if query.sku:
             filter_clauses.append(
@@ -374,33 +381,51 @@ class ElasticsearchIndexAdapter(SearchIndexer):
         must_clauses: list[dict[str, Any]] = []
         if query.q and query.q.strip():
             cleaned_q = query.q.strip()
-            must_clauses.append(
-                {
-                    "bool": {
-                        "should": [
-                            {
-                                "multi_match": {
-                                    "query": cleaned_q,
-                                    "fields": ["name^3", "slug^2", "description"],
-                                    "type": "best_fields",
-                                }
-                            },
-                            {
-                                "nested": {
-                                    "path": "skus",
-                                    "query": {
-                                        "multi_match": {
-                                            "query": cleaned_q,
-                                            "fields": ["skus.sku_code^2"],
-                                        }
-                                    },
-                                }
-                            },
-                        ],
-                        "minimum_should_match": 1,
+            if query.index_alias == "audit_logs":
+                must_clauses.append(
+                    {
+                        "multi_match": {
+                            "query": cleaned_q,
+                            "fields": [
+                                "action^3",
+                                "actor_id^2",
+                                "resource_type^2",
+                                "resource_id",
+                                "decision_reason",
+                                "policy_decision",
+                            ],
+                            "type": "best_fields",
+                        }
                     }
-                }
-            )
+                )
+            else:
+                must_clauses.append(
+                    {
+                        "bool": {
+                            "should": [
+                                {
+                                    "multi_match": {
+                                        "query": cleaned_q,
+                                        "fields": ["name^3", "slug^2", "description"],
+                                        "type": "best_fields",
+                                    }
+                                },
+                                {
+                                    "nested": {
+                                        "path": "skus",
+                                        "query": {
+                                            "multi_match": {
+                                                "query": cleaned_q,
+                                                "fields": ["skus.sku_code^2"],
+                                            }
+                                        },
+                                    }
+                                },
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }
+                )
 
         query_body: dict[str, Any] = {
             "bool": {
@@ -411,7 +436,8 @@ class ElasticsearchIndexAdapter(SearchIndexer):
             query_body["bool"]["must"] = must_clauses
 
         # 2. Safe sort resolution
-        sort_field = ALLOWED_SORT_FIELDS.get(query.sort_by, "created_at")
+        default_sort = "occurred_at" if query.index_alias == "audit_logs" else "created_at"
+        sort_field = ALLOWED_SORT_FIELDS.get(query.sort_by, default_sort)
         sort_order = "asc" if query.sort_order.lower() == "asc" else "desc"
         sort_clause: list[dict[str, Any]] = [
             {sort_field: {"order": sort_order}},

@@ -37,7 +37,13 @@ celery_app.conf.update(
             "schedule": float(settings.reservation_expiry_interval_seconds),
             "args": (),
         },
+        "prune-published-outbox-events": {
+            "task": "outbox.prune_published_events_task",
+            "schedule": 86400.0,  # 24 hours
+            "args": (),
+        },
     },
 )
+
 
 __all__ = ["celery_app"]

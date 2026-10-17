@@ -216,3 +216,97 @@ class TestOrderSearchAndProjections:
             SearchQuery(index_alias=AUDIT_INDEX_ALIAS, tenant_id=tenant_id, q="cancellation")
         )
         assert res.total == 1
+
+    @pytest.mark.asyncio
+    async def test_order_search_cursor_query_binding_and_tampering_rejection(self) -> None:
+        adapter = InMemorySearchIndexer()
+        await adapter.ensure_index(
+            index_name=ORDERS_INDEX_V1,
+            mappings=ORDERS_INDEX_MAPPINGS,
+            aliases=(ORDERS_INDEX_ALIAS,),
+        )
+        service = SearchOrdersService(indexer=adapter)
+        tenant_id = str(new_id())
+
+        # Seed 3 orders for the tenant
+        for i in range(3):
+            doc = OrderSearchDocument(
+                id=f"order-{i}",
+                tenant_id=tenant_id,
+                status="CONFIRMED",
+                customer_reference=f"CUST-{i}",
+                currency="USD",
+                total_minor=1000 * (i + 1),
+                warehouse_ids=["wh-1"],
+                skus=[{"sku_code": "SKU-A", "quantity": 1}],
+                created_at=f"2026-10-1{i}T12:00:00Z",
+            )
+            await adapter.index((doc.to_search_document(),))
+
+        # Perform page 1 search with date_from and date_to
+        page1 = await service.search(
+            tenant_id=tenant_id,
+            status="CONFIRMED",
+            date_from="2026-10-01T00:00:00Z",
+            date_to="2026-10-20T00:00:00Z",
+            page_size=1,
+        )
+        assert page1.next_cursor is not None
+
+        # 1. Reuse cursor with EXACT same filters -> Success
+        page2 = await service.search(
+            tenant_id=tenant_id,
+            status="CONFIRMED",
+            date_from="2026-10-01T00:00:00Z",
+            date_to="2026-10-20T00:00:00Z",
+            page_size=1,
+            cursor=page1.next_cursor,
+        )
+        assert page2 is not None
+
+        from shared.application.errors import InvalidRequest
+
+        # 2. Modify date_from -> Must be REJECTED
+        with pytest.raises(InvalidRequest, match="pagination cursor does not match"):
+            await service.search(
+                tenant_id=tenant_id,
+                status="CONFIRMED",
+                date_from="2026-10-05T00:00:00Z",  # Changed!
+                date_to="2026-10-20T00:00:00Z",
+                page_size=1,
+                cursor=page1.next_cursor,
+            )
+
+        # 3. Modify date_to -> Must be REJECTED
+        with pytest.raises(InvalidRequest, match="pagination cursor does not match"):
+            await service.search(
+                tenant_id=tenant_id,
+                status="CONFIRMED",
+                date_from="2026-10-01T00:00:00Z",
+                date_to="2026-10-25T00:00:00Z",  # Changed!
+                page_size=1,
+                cursor=page1.next_cursor,
+            )
+
+        # 4. Modify status -> Must be REJECTED
+        with pytest.raises(InvalidRequest, match="pagination cursor does not match"):
+            await service.search(
+                tenant_id=tenant_id,
+                status="CANCELLED",  # Changed!
+                date_from="2026-10-01T00:00:00Z",
+                date_to="2026-10-20T00:00:00Z",
+                page_size=1,
+                cursor=page1.next_cursor,
+            )
+
+        # 5. Reuse cursor with a different tenant_id -> Must be REJECTED
+        diff_tenant = str(new_id())
+        with pytest.raises(InvalidRequest, match="pagination cursor is not valid for this tenant"):
+            await service.search(
+                tenant_id=diff_tenant,
+                status="CONFIRMED",
+                date_from="2026-10-01T00:00:00Z",
+                date_to="2026-10-20T00:00:00Z",
+                page_size=1,
+                cursor=page1.next_cursor,
+            )

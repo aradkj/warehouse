@@ -86,6 +86,7 @@ class ReindexingService:
                 )
 
         total_indexed = 0
+        alias_swapped = False
         try:
             # 1. Create new index with deterministic mappings
             await self._indexer.ensure_index(
@@ -140,6 +141,17 @@ class ReindexingService:
                 new_index_name,
             )
 
+            # Fencing check: ensure lock was not lost or expired during long reindexing
+            if self._cache is not None and lock_token is not None:
+                is_valid = await self._cache.validate_lock(lock_key, token=lock_token)
+                if not is_valid:
+                    from shared.application.errors import ConcurrencyConflict
+
+                    raise ConcurrencyConflict(
+                        f"Reindex lock was lost or expired for alias '{self._alias}' "
+                        "before alias promotion"
+                    )
+
             # 5. Atomic alias switch
             old_indices = await self._indexer.list_indices_for_alias(alias=self._alias)
             await self._indexer.switch_alias(
@@ -147,6 +159,7 @@ class ReindexingService:
                 new_index=new_index_name,
                 old_indices=old_indices,
             )
+            alias_swapped = True
 
             # 6. Invalidate search cache version for tenant if scoped
             if self._cache is not None and tenant_id is not None:
@@ -156,32 +169,55 @@ class ReindexingService:
                     logger.warning("Failed to bump search version after reindex: %s", cache_err)
 
             # 7. Clean up old physical indices unless retention is requested
+            cleanup_errors: list[str] = []
             if not retain_old_indices:
                 for old in old_indices:
                     if old != new_index_name:
-                        await self._indexer.delete_index(index_name=old)
+                        try:
+                            await self._indexer.delete_index(index_name=old)
+                        except Exception as old_del_err:
+                            cleanup_msg = f"{old}: {old_del_err}"
+                            cleanup_errors.append(cleanup_msg)
+                            logger.warning(
+                                "Failed to delete obsolete index '%s' after alias switch: %s",
+                                old,
+                                old_del_err,
+                            )
 
             return ReindexResult(
                 index_name=new_index_name,
                 alias=self._alias,
                 total_indexed=total_indexed,
-                status="COMPLETED",
+                status="COMPLETED" if not cleanup_errors else "COMPLETED_WITH_CLEANUP_WARNINGS",
+                cleanup_errors=tuple(cleanup_errors),
             )
 
         except Exception as exc:
-            # SAFETY INVARIANT: If rebuild fails, destroy the incomplete index and
-            # never switch alias. The active healthy index remains untouched.
-            logger.error(
-                "Reindex failed for %s (%s). Rolling back incomplete index.",
-                new_index_name,
-                exc,
-                exc_info=True,
-            )
-            try:
-                await self._indexer.delete_index(index_name=new_index_name)
-            except Exception as cleanup_err:
-                logger.warning(
-                    "Failed to clean up incomplete index %s: %s", new_index_name, cleanup_err
+            if not alias_swapped:
+                # SAFETY INVARIANT: If rebuild fails prior to promotion, destroy incomplete index.
+                # The active healthy index remains untouched.
+                logger.error(
+                    "Reindex failed prior to alias promotion for %s (%s). Rolling back index.",
+                    new_index_name,
+                    exc,
+                    exc_info=True,
+                )
+                try:
+                    await self._indexer.delete_index(index_name=new_index_name)
+                except Exception as cleanup_err:
+                    logger.warning(
+                        "Failed to clean up incomplete index %s: %s", new_index_name, cleanup_err
+                    )
+            else:
+                # SAFETY INVARIANT: Once the alias has been promoted to the new index,
+                # NEVER delete new_index_name! It is now the live, active production index.
+                logger.error(
+                    "Post-promotion error in reindex workflow for %s (%s). "
+                    "Active index %s was PRESERVED.",
+                    self._alias,
+                    exc,
+                    new_index_name,
+                    exc_info=True,
                 )
             raise
         finally:

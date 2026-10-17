@@ -173,6 +173,19 @@ class InMemoryCache(CachePort):
             return True
         return False
 
+    async def validate_lock(self, key: str, token: str) -> bool:
+        if self.simulate_outage:
+            return False
+
+        lock_key = default_key_builder.lock(key)
+        if lock_key not in self._locks:
+            return False
+
+        current_token, expires_at = self._locks[lock_key]
+        if self._now() >= expires_at:
+            return False
+        return current_token == token
+
     async def get_or_set(
         self,
         key: str,

@@ -42,6 +42,15 @@ else
 end
 """
 
+#: Lua script to atomically validate whether the caller holds the matching token.
+_LUA_VALIDATE_LOCK = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return 1
+else
+    return 0
+end
+"""
+
 
 def _ttl_seconds(ttl: int | timedelta) -> int:
     """Normalize timedelta or integer to integer seconds >= 1."""
@@ -65,6 +74,7 @@ class RedisCacheAdapter(CachePort):
         self._negative_ttl = negative_ttl_seconds
         self._lock_timeout = lock_timeout_seconds
         self._release_script = self._redis.register_script(_LUA_RELEASE_LOCK)
+        self._validate_script = self._redis.register_script(_LUA_VALIDATE_LOCK)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> RedisCacheAdapter:
@@ -230,6 +240,16 @@ class RedisCacheAdapter(CachePort):
             return bool(result == 1)
         except (RedisError, TimeoutError, OSError) as exc:
             logger.warning("Redis lock release failed for key '%s': %s", key, exc)
+            return False
+
+    async def validate_lock(self, key: str, token: str) -> bool:
+        """Validate whether distributed lock is still held by caller."""
+        lock_key = default_key_builder.lock(key)
+        try:
+            result = await self._validate_script(keys=[lock_key], args=[token])
+            return bool(result == 1)
+        except (RedisError, TimeoutError, OSError) as exc:
+            logger.warning("Redis lock validation failed for key '%s': %s", key, exc)
             return False
 
     async def get_or_set(

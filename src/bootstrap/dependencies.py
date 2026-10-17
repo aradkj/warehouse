@@ -1033,6 +1033,21 @@ def get_order_search_service(
     )
 
 
+def get_audit_search_service(
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
+    cache: Annotated[CachePort, Depends(get_cache)],
+) -> Any:
+    from search.application.audit_service import SearchAuditService
+
+    return SearchAuditService(
+        indexer=indexer,
+        cache=cache,
+        cache_ttl_seconds=settings.search_cache_ttl_seconds,
+        max_page_size=settings.search_max_page_size,
+    )
+
+
 def get_reindexing_service(
     settings: Annotated[Settings, Depends(get_application_settings)],
     indexer: Annotated[SearchIndexer, Depends(get_search_indexer)],
@@ -1076,6 +1091,7 @@ __all__ = [
     "get_admin_context",
     "get_application_settings",
     "get_audit_port",
+    "get_audit_search_service",
     "get_authenticated_tenant_context",
     "get_authorization_service",
     "get_cache",

@@ -30,9 +30,11 @@ from ordering.ports.events import (
     OrderShipped,
 )
 from search.application.models import (
+    AUDIT_INDEX_ALIAS,
     FULFILLMENT_EXCEPTIONS_INDEX_ALIAS,
     ORDERS_INDEX_ALIAS,
     PRODUCTS_INDEX_ALIAS,
+    AuditSearchDocument,
     FulfillmentExceptionSearchDocument,
     OrderSearchDocument,
     ProductSearchDocument,
@@ -269,6 +271,24 @@ class ProductSearchProjector:
                     version=int(payload.get("version", 1)),
                 )
                 await self._index_fulfillment_exception_document(exc_doc)
+
+            case "AuditLogged":
+                audit_id = str(payload.get("audit_id") or payload.get("id") or "")
+                audit_doc = AuditSearchDocument(
+                    id=audit_id,
+                    tenant_id=tenant_id if tenant_id != "system" else None,
+                    actor_id=str(payload.get("actor_id") or ""),
+                    action=str(payload.get("action") or ""),
+                    resource_type=str(payload.get("resource_type") or ""),
+                    resource_id=str(payload.get("resource_id") or ""),
+                    correlation_id=payload.get("correlation_id"),
+                    causation_id=payload.get("causation_id"),
+                    policy_decision=str(payload.get("policy_decision") or "ALLOW"),
+                    decision_reason=str(payload.get("decision_reason") or "authorized"),
+                    occurred_at=str(payload.get("occurred_at") or datetime.now(UTC).isoformat()),
+                    details=dict(payload.get("details") or {}),
+                )
+                await self._index_audit_document(audit_doc)
 
             case _:
                 logger.debug("Unhandled event name in projector: %s", event_name)
@@ -537,6 +557,11 @@ class ProductSearchProjector:
     ) -> None:
         """Index fulfillment exception search document."""
         search_doc = doc.to_search_document(alias=FULFILLMENT_EXCEPTIONS_INDEX_ALIAS)
+        await self._indexer.index((search_doc,))
+
+    async def _index_audit_document(self, doc: AuditSearchDocument) -> None:
+        """Index audit search document."""
+        search_doc = doc.to_search_document(alias=AUDIT_INDEX_ALIAS)
         await self._indexer.index((search_doc,))
 
 

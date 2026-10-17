@@ -268,3 +268,89 @@ async def test_reindex_lock_cleanup_on_ensure_index_failure() -> None:
     # CRITICAL: Lock must be released despite failure in ensure_index!
     assert not fake_cache.lock_held
     assert fake_cache.released_token == "test-token-123"
+
+
+async def test_reindex_old_index_cleanup_failure_does_not_delete_active_index() -> None:
+    """If old index deletion fails after alias switch, the new index MUST NOT be deleted!"""
+    tenant_id = str(uuid.uuid4())
+    active_index = "products-initial"
+
+    class FailingDeleteIndexer(InMemorySearchIndexer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempted_deletes: list[str] = []
+
+        async def delete_index(self, index_name: str) -> None:
+            self.attempted_deletes.append(index_name)
+            if index_name == active_index:
+                raise RuntimeError("ES error: permission denied deleting old index")
+            await super().delete_index(index_name)
+
+    indexer = FailingDeleteIndexer()
+    await indexer.ensure_index(
+        index_name=active_index, mappings={}, aliases=(PRODUCTS_INDEX_ALIAS,)
+    )
+
+    pg_docs = [_make_doc(tenant_id, "p1", "Product 1")]
+    reader = MockCatalogSearchReader(pg_docs)
+    service = ReindexingService(indexer=indexer, reader=reader, alias=PRODUCTS_INDEX_ALIAS)
+
+    result = await service.reindex(retain_old_indices=False)
+
+    # Result should succeed with warning status
+    assert result.status == "COMPLETED_WITH_CLEANUP_WARNINGS"
+    assert len(result.cleanup_errors) == 1
+    assert "permission denied" in result.cleanup_errors[0]
+
+    # CRITICAL SAFETY INVARIANT: The newly promoted index MUST STILL BE ACTIVE!
+    active_indices = await indexer.list_indices_for_alias(alias=PRODUCTS_INDEX_ALIAS)
+    assert active_indices == (result.index_name,)
+    assert result.index_name in indexer._indices
+    # The active index was NOT deleted
+    assert result.index_name not in indexer.attempted_deletes
+
+
+async def test_reindex_lock_fencing_prevents_stale_alias_switch() -> None:
+    """If lock is lost/expired before alias switch, switch is aborted and new index is rolled back."""
+    tenant_id = str(uuid.uuid4())
+    active_index = "products-active"
+    indexer = InMemorySearchIndexer()
+    await indexer.ensure_index(
+        index_name=active_index, mappings={}, aliases=(PRODUCTS_INDEX_ALIAS,)
+    )
+
+    class ExpiringLockCache:
+        def __init__(self) -> None:
+            self.token = "initial-token"
+            self.is_valid = True
+
+        async def acquire_lock(self, key: str, ttl: int = 600) -> str | None:
+            return self.token
+
+        async def validate_lock(self, key: str, token: str) -> bool:
+            return self.is_valid
+
+        async def release_lock(self, key: str, token: str) -> bool:
+            return True
+
+    fake_cache = ExpiringLockCache()
+    # Simulate lock expiring right before alias promotion
+    fake_cache.is_valid = False
+
+    pg_docs = [_make_doc(tenant_id, "p1", "Product 1")]
+    reader = MockCatalogSearchReader(pg_docs)
+    service = ReindexingService(
+        indexer=indexer,
+        reader=reader,
+        cache=fake_cache,  # type: ignore[arg-type]
+        alias=PRODUCTS_INDEX_ALIAS,
+    )
+
+    from shared.application.errors import ConcurrencyConflict
+
+    with pytest.raises(ConcurrencyConflict, match="Reindex lock was lost or expired"):
+        await service.reindex()
+
+    # The active alias still points to the old healthy index
+    active_indices = await indexer.list_indices_for_alias(alias=PRODUCTS_INDEX_ALIAS)
+    assert active_indices == (active_index,)

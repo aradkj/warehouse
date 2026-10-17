@@ -3,7 +3,7 @@
 [![CI Quality & Test Suite](https://github.com/aradkj/warehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/aradkj/warehouse/actions/workflows/ci.yml)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type Checker: Mypy](https://img.shields.io/badge/type%20checker-mypy-blue.svg)](https://mypy-lang.org/)
-[![Test Suite: 561 Passed](https://img.shields.io/badge/tests-561%20passed-brightgreen.svg)]()
+[![Test Suite: 573 Passed](https://img.shields.io/badge/tests-573%20passed-brightgreen.svg)]()
 [![Phase: 1-5 Complete](https://img.shields.io/badge/phase-1--5%20complete-success.svg)]()
 
 Production-grade, multi-tenant distributed orchestration platform coordinating orders, atomic inventory reservations across multiple warehouses, external carrier fulfillment, near-real-time search projections, and attribute-based access control (ABAC).
@@ -325,6 +325,7 @@ GET    /v1/audit/events                         Query immutable audit trail
 # Search & Catalog
 GET    /v1/search/products                      Full-text faceted product search
 GET    /v1/search/orders                        Elasticsearch order query
+GET    /v1/search/audit                         Tenant-isolated audit log search
 ```
 
 ---
@@ -341,15 +342,15 @@ The test suite enforces full pyramid coverage across pure unit, application orch
 
 ## 23. Current Test Count & Metrics
 
-Execution in clean Docker test environment:
+Execution in clean environment against active services:
 
 ```text
-======================= 526 passed in 119.96s (0:01:59) ========================
+======================= 573 passed, 1 skipped in 142.58s ========================
 ```
 
-- **Total Automated Tests:** **526 passed** (0 failed, 0 errors, 0 skipped).
-- **Ruff Code Style:** **0 errors** (clean).
-- **Mypy Static Typing:** **0 errors** (checked 211 source files in `src/`).
+- **Total Automated Tests:** **573 passed** (1 skipped, 0 failed, 0 errors across 574 collected tests).
+- **Ruff Code Style:** **0 errors** (clean, formatted).
+- **Mypy Static Typing:** **0 errors** (strict type safety in `src/`).
 - **Architecture Rules:** Enforced via `test_architecture.py` (dependency direction verified).
 
 ---
@@ -360,7 +361,7 @@ Defined in `.github/workflows/ci.yml`:
 1. **Lint & Static Analysis:** Executes `ruff check` and `mypy src/`.
 2. **Container Composition:** Validates `docker compose config --quiet`.
 3. **Database Migration:** Executes Alembic forward migrations against a clean database.
-4. **Test Suite Execution:** Runs the complete 526-test suite in the isolated test service.
+4. **Test Suite Execution:** Runs the complete test suite in the isolated test service.
 5. **Multi-Stage Docker Builds:** Builds both `runtime` and `test` Docker targets.
 
 ---
@@ -396,11 +397,20 @@ curl -s http://localhost:8000/readyz    # {"status":"ready","checks":{"database"
 docker compose run --rm api alembic upgrade head
 ```
 
-### Roll Back Last Migration
+### Migration Recovery & Rollback Strategy
 
-```bash
-docker compose run --rm api alembic downgrade -1
-```
+> [!WARNING]
+> **Forward-Only Migration Policy:** Migration `0009_harden_rls_and_roles` establishes least-privilege PostgreSQL runtime roles, row-level security policies, and permission revocation that cannot safely be downgraded automatically. Attempting `alembic downgrade -1` will raise an intentional `RuntimeError` to prevent security regression.
+
+To recover from a schema defect or deployment failure:
+1. **Forward-Fix Migration (Preferred):** Author and apply a new forward migration (`0010_...`) that rectifies the schema or permissions.
+   ```bash
+   docker compose run --rm api alembic upgrade head
+   ```
+2. **Point-in-Time Disaster Recovery Restore:** For catastrophic failures, restore the pre-migration verified database backup into an isolated restore target:
+   ```bash
+   python scripts/restore_postgres.py backups/arad_backup_<timestamp>.sql --database arad_restore --expected-revision 0009_harden_rls_and_roles
+   ```
 
 ### Create New Migration Revision
 

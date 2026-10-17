@@ -888,7 +888,8 @@ class TestStage4DurableAudit:
         await adapter.record(entry)
 
         assert mock_session.execute.called
-        call_args = mock_session.execute.call_args[0][0]
+        # First execute call is the audit_logs insert statement
+        call_args = mock_session.execute.call_args_list[0][0][0]
         # Inspect compiled parameters inserted
         inserted_values = call_args.compile().params
         details = inserted_values["details"]

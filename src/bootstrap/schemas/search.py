@@ -264,7 +264,68 @@ class OrderSearchPageResponse(BaseModel):
         )
 
 
+class AuditSearchResultResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    tenant_id: str | None = None
+    actor_id: str
+    action: str
+    resource_type: str
+    resource_id: str
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    policy_decision: str = "ALLOW"
+    decision_reason: str = "authorized"
+    occurred_at: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    score: float | None = None
+
+    @classmethod
+    def from_item(cls, item: SearchResultItem) -> AuditSearchResultResponse:
+        src = item.raw_source
+        return cls(
+            id=item.id,
+            tenant_id=src.get("tenant_id") or item.tenant_id,
+            actor_id=str(src.get("actor_id") or ""),
+            action=str(src.get("action") or ""),
+            resource_type=str(src.get("resource_type") or ""),
+            resource_id=str(src.get("resource_id") or ""),
+            correlation_id=src.get("correlation_id"),
+            causation_id=src.get("causation_id"),
+            policy_decision=str(src.get("policy_decision") or "ALLOW"),
+            decision_reason=str(src.get("decision_reason") or "authorized"),
+            occurred_at=str(src.get("occurred_at") or item.created_at),
+            details=dict(src.get("details") or {}),
+            score=item.score,
+        )
+
+
+class AuditSearchPageResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: list[AuditSearchResultResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    next_cursor: str | None = None
+
+    @classmethod
+    def from_page_result(cls, result: SearchPageResult) -> AuditSearchPageResponse:
+        return cls(
+            items=[AuditSearchResultResponse.from_item(it) for it in result.items],
+            total=result.total,
+            page=result.page,
+            page_size=result.page_size,
+            total_pages=result.total_pages,
+            next_cursor=result.next_cursor,
+        )
+
+
 __all__ = [
+    "AuditSearchPageResponse",
+    "AuditSearchResultResponse",
     "OrderSearchPageResponse",
     "OrderSearchResultResponse",
     "OrderSearchSkuResponse",

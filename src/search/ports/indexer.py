@@ -171,6 +171,7 @@ class ReindexResult:
     alias: str
     total_indexed: int
     status: str
+    cleanup_errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
