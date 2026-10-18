@@ -113,6 +113,13 @@ jobs:
       - name: Smoke test runtime image (API, Health, and SPA serving)
         if: success()
         run: |
+          cleanup() {
+            echo "Stopping and removing smoke-api container..."
+            docker stop smoke-api 2>/dev/null || true
+            docker rm smoke-api 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           docker run -d --name smoke-api \
             -p 8000:8000 \
             --read-only \
@@ -124,25 +131,72 @@ jobs:
             -e ARAD_AUTH_REQUIRED=true \
             warehouse-api:ci
 
+          echo "Waiting for container readiness probe on http://127.0.0.1:8000/healthz..."
+          READY=0
           for i in $(seq 1 30); do
-            if curl -s -f http://127.0.0.1:8000/healthz; then
-              echo "Health probe passed."
+            if curl -s -f http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
+              echo "Health probe passed on attempt $i."
+              READY=1
               break
             fi
             sleep 1
           done
 
-          curl -s -f http://127.0.0.1:8000/healthz | grep -q '"status"'
-          curl -s -f http://127.0.0.1:8000/ | grep -q 'Arad Platform'
-          curl -s -f http://127.0.0.1:8000/orders/new | grep -q 'Arad Platform'
-
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/v1/nonexistent)
-          if [ "$HTTP_CODE" -ne 404 ]; then
-            echo "Expected 404 for nonexistent API route, got $HTTP_CODE"
+          if [ "$READY" -ne 1 ]; then
+            echo "FAILED: Container failed to become healthy within 30 seconds."
+            docker logs smoke-api --tail 50
             exit 1
           fi
 
-          docker stop smoke-api && docker rm smoke-api
+          check_endpoint() {
+            local url="$1"
+            local expected_status="$2"
+            local pattern="$3"
+            local description="$4"
+
+            echo "=== Smoke Test: $description ==="
+            local resp_file
+            resp_file=$(mktemp)
+            local hdr_file
+            hdr_file=$(mktemp)
+
+            local status_code
+            status_code=$(curl -s -S -w "%{http_code}" -D "$hdr_file" -o "$resp_file" "$url" || echo "000")
+            local content_type
+            content_type=$(grep -i '^content-type:' "$hdr_file" | tr -d '\r' | sed -e 's/^[cC]ontent-[tT]ype: *//')
+
+            echo "  URL: $url"
+            echo "  HTTP Status: $status_code (expected: $expected_status)"
+            echo "  Content-Type: $content_type"
+
+            if [ "$status_code" -ne "$expected_status" ]; then
+              echo "  ERROR: HTTP status $status_code does not match expected $expected_status"
+              echo "  Response excerpt:"
+              head -n 20 "$resp_file" | sed 's/^/    /'
+              rm -f "$resp_file" "$hdr_file"
+              exit 1
+            fi
+
+            if [ -n "$pattern" ]; then
+              if grep -q "$pattern" "$resp_file"; then
+                echo "  Expected Content ('$pattern'): PRESENT"
+              else
+                echo "  ERROR: Expected pattern '$pattern' not found in response from $url"
+                echo "  Response excerpt:"
+                head -n 20 "$resp_file" | sed 's/^/    /'
+                rm -f "$resp_file" "$hdr_file"
+                exit 1
+              fi
+            fi
+
+            rm -f "$resp_file" "$hdr_file"
+            echo "  STATUS: PASSED"
+          }
+
+          check_endpoint "http://127.0.0.1:8000/healthz" 200 '"status"' "Health Probe Endpoint"
+          check_endpoint "http://127.0.0.1:8000/" 200 "Arad Platform" "Root SPA Index Serving"
+          check_endpoint "http://127.0.0.1:8000/orders/new" 200 "Arad Platform" "Client-Side SPA Routing Fallback"
+          check_endpoint "http://127.0.0.1:8000/v1/nonexistent" 404 "API endpoint not found" "API Route 404 Isolation"
 
       - name: Stop containers and remove volumes
         if: always()
