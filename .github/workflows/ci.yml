@@ -47,6 +47,25 @@ jobs:
       - name: Mypy type checking
         run: mypy src/ scripts/
 
+      - name: Set up Node.js
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Frontend TypeScript type check & build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Frontend unit & component tests
+        working-directory: frontend
+        run: npm test
+
 
       - name: Validate Production Docker Compose configuration
         env:
@@ -90,6 +109,40 @@ jobs:
       - name: Build test image
         if: success()
         run: docker build --target test --tag warehouse-test:ci .
+
+      - name: Smoke test runtime image (API, Health, and SPA serving)
+        if: success()
+        run: |
+          docker run -d --name smoke-api \
+            -p 8000:8000 \
+            --read-only \
+            --tmpfs /tmp \
+            --cap-drop ALL \
+            -e ARAD_ENVIRONMENT=production \
+            -e ARAD_LOG_JSON=true \
+            -e ARAD_AUTH_JWT_SECRET=smoke-test-secret-32-chars-long-minimum \
+            -e ARAD_AUTH_REQUIRED=true \
+            warehouse-api:ci
+
+          for i in $(seq 1 30); do
+            if curl -s -f http://127.0.0.1:8000/healthz; then
+              echo "Health probe passed."
+              break
+            fi
+            sleep 1
+          done
+
+          curl -s -f http://127.0.0.1:8000/healthz | grep -q '"status"'
+          curl -s -f http://127.0.0.1:8000/ | grep -q 'Arad Platform'
+          curl -s -f http://127.0.0.1:8000/orders/new | grep -q 'Arad Platform'
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/v1/nonexistent)
+          if [ "$HTTP_CODE" -ne 404 ]; then
+            echo "Expected 404 for nonexistent API route, got $HTTP_CODE"
+            exit 1
+          fi
+
+          docker stop smoke-api && docker rm smoke-api
 
       - name: Stop containers and remove volumes
         if: always()

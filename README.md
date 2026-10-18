@@ -103,6 +103,7 @@ Outbound Adapters (PostgreSQL, Redis, Elasticsearch, RabbitMQ)
 | **Fulfillment** | Complete | `Fulfillment`, `FulfillmentTask` | Warehouse task dispatch, carrier tracking, retries, compensation. |
 | **Search & Reporting**| Complete | `SearchDocument` projections | Denormalized projections for Products, Orders, Exceptions, and Audit logs. |
 | **Audit** | Complete | `AuditLog` | Durable append-only audit records with correlation tracking and actor context. |
+| **Frontend SPA** | Complete | React 18, TypeScript 5, Vite 6 | Administrative UI for inventory, orders, catalog, fulfillment, policies, and audit. |
 
 ---
 
@@ -110,13 +111,14 @@ Outbound Adapters (PostgreSQL, Redis, Elasticsearch, RabbitMQ)
 
 - **Runtime:** Python 3.12+ (tested on Python 3.13)
 - **Web Framework:** FastAPI, Uvicorn, Pydantic v2
+- **Frontend SPA:** React 18, TypeScript 5, Vite 6, React Router 6, Lucide Icons, Vitest
 - **Authoritative Database:** PostgreSQL 16+ with asyncpg, SQLAlchemy 2 (asyncio), and Alembic
 - **Distributed Cache:** Redis 7+ (cache-aside, tenant keys, stampede protection)
 - **Message Broker:** RabbitMQ 3.13+ (topic exchange, durable queues, retry/DLQ topology)
 - **Task Worker & Scheduler:** Celery 5.4+, Celery Beat
 - **Search Engine:** Elasticsearch 8.x (zero-downtime aliases, disposable projections)
 - **Security & Crypto:** Argon2id, PyJWT, PostgreSQL Row-Level Security (RLS)
-- **Testing & Quality:** pytest, pytest-asyncio, Hypothesis, Ruff, Mypy (strict)
+- **Testing & Quality:** pytest, pytest-asyncio, Hypothesis, Vitest, Ruff, Mypy (strict)
 
 ---
 
@@ -383,6 +385,7 @@ curl -s http://localhost:8000/readyz    # {"status":"ready","checks":{"database"
 
 ### Access Management Interfaces
 
+- **Web Application UI:** `http://localhost:8000/` (Integrated SPA)
 - **FastAPI OpenAPI Docs:** `http://localhost:8000/docs`
 - **RabbitMQ Management UI:** `http://localhost:15672` (Username: `arad` / Password: `arad`)
 - **Elasticsearch API:** `http://localhost:9200`

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     api_title: str = "Arad Order & Inventory Orchestration Platform"
     #: Bodies larger than this are rejected with 413 before they are parsed.
     max_request_bytes: int = 1_048_576
+    frontend_dist_dir: str | None = Field(
+        default=None,
+        description="Path to prebuilt frontend static files (SPA dist directory).",
+    )
 
     # -- business policy ---------------------------------------------------
     #: What happens when stock cannot (fully) be reserved during submission:

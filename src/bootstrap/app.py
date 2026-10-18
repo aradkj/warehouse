@@ -178,6 +178,10 @@ def create_app(
     app.include_router(audit.router, prefix=app_settings.api_prefix)
     app.include_router(search.router, prefix=app_settings.api_prefix)
 
+    from bootstrap.frontend import mount_frontend_spa
+
+    mount_frontend_spa(app, app_settings)
+
     return app
 
 
