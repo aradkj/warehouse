@@ -80,4 +80,3 @@ def mount_frontend_spa(app: FastAPI, settings: Settings) -> None:
 
         # 4. Fallback to SPA index.html for client-side routing
         return FileResponse(index_html_path, headers=index_headers)
-
