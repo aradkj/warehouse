@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Path, Response, status
 from bootstrap.dependencies import (
     UseCases,
     apply_outcome,
+    get_optional_current_principal,
     get_request_context,
     get_token_service,
     get_use_cases,
@@ -25,9 +26,9 @@ from bootstrap.schemas.platform import RegisterTenantRequest, TenantResponse
 from identity.application.commands import GetTenantQuery, RegisterTenantCommand
 from identity.domain.principal import Principal
 from identity.infrastructure.security import TokenService
-from shared.application.context import RequestContext
+from shared.application.context import ActorType, RequestContext
 from shared.application.errors import Forbidden
-from shared.domain.identifiers import TenantId
+from shared.domain.identifiers import TenantId, UserId
 
 router = APIRouter(tags=["platform"])
 
@@ -54,6 +55,7 @@ async def register_tenant(
     context: Annotated[RequestContext, Depends(get_request_context)],
     use_cases: Annotated[UseCases, Depends(get_use_cases)],
     token_service: Annotated[TokenService, Depends(get_token_service)],
+    principal: Annotated[Principal | None, Depends(get_optional_current_principal)] = None,
 ) -> TenantResponse:
     """Create a tenant (the onboarding entry point of the platform).
 
@@ -61,8 +63,18 @@ async def register_tenant(
     comes from the unique slug: registering the same slug twice yields
     ``409 duplicate_resource``, and the first tenant id is returned by a lookup.
     """
+    user_id = (
+        UserId(UUID(principal.id))
+        if principal is not None and principal.type == ActorType.USER
+        else None
+    )
     outcome = await use_cases.register_tenant(
-        RegisterTenantCommand(context=context, slug=payload.slug, name=payload.name)
+        RegisterTenantCommand(
+            context=context,
+            slug=payload.slug,
+            name=payload.name,
+            user_id=user_id,
+        )
     )
     apply_outcome(response, outcome)
 

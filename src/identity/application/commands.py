@@ -24,6 +24,7 @@ class RegisterTenantCommand:
     context: RequestContext
     slug: str
     name: str
+    user_id: UserId | None = None
 
 
 @dataclass(frozen=True, slots=True)

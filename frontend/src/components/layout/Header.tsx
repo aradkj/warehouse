@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building, LogOut, Menu, Shield, User } from 'lucide-react';
+import { Building, Check, ChevronDown, LogOut, Menu, Plus, Shield, User } from 'lucide-react';
 import { useAuth } from '../../app/providers/AuthContext';
 import { useTenant } from '../../app/providers/TenantContext';
 import { useTranslation } from '../../i18n';
@@ -17,11 +17,43 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
   const { activeTenantId, activeMembership, memberships, selectTenant } = useTenant();
   const { t } = useTranslation();
   const [isTenantMenuOpen, setIsTenantMenuOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsTenantMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsTenantMenuOpen(false);
+      }
+    };
+
+    if (isTenantMenuOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isTenantMenuOpen]);
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
+  };
+
+  const handleSwitchTenant = async (tenantId: string) => {
+    try {
+      await selectTenant(tenantId);
+      setIsTenantMenuOpen(false);
+    } catch {
+      // Toast displays error from selectTenant
+    }
   };
 
   const currentRole = activeMembership?.role || principal?.role || 'MEMBER';
@@ -51,19 +83,28 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
         {/* System Health Probe */}
         <SystemStatusIndicator />
 
-        {/* Tenant Context Selector */}
+        {/* Tenant Context Selector / Switcher */}
         {memberships.length > 0 && (
-          <div style={{ position: 'relative' }}>
+          <div ref={dropdownRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setIsTenantMenuOpen(!isTenantMenuOpen)}
               className="btn btn-secondary btn-sm flex items-center gap-2"
               aria-expanded={isTenantMenuOpen}
               aria-label={t('header.activeTenantSelector')}
+              data-testid="tenant-switcher-button"
             >
-              <Building size={14} className="text-secondary" />
-              <span className="font-medium">
+              <Building size={14} className="text-secondary flex-shrink-0" />
+              <span className="font-semibold text-main truncate" style={{ maxWidth: '160px' }}>
                 {activeMembership?.tenant_name || activeMembership?.tenant_slug || activeTenantId?.slice(0, 8) || t('header.selectTenant')}
               </span>
+              <ChevronDown
+                size={14}
+                className="text-muted flex-shrink-0 transition-transform"
+                style={{
+                  transform: isTenantMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease',
+                }}
+              />
             </button>
 
             {isTenantMenuOpen && (
@@ -72,8 +113,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                   position: 'absolute',
                   top: '100%',
                   insetInlineEnd: 0,
-                  marginTop: '0.25rem',
-                  width: '260px',
+                  marginTop: '0.35rem',
+                  width: '280px',
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-md)',
@@ -82,35 +123,65 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                   padding: '0.5rem 0',
                 }}
               >
-                <div className="px-3 py-1 text-xs font-semibold text-muted border-b mb-1">
-                  {t('header.tenantMemberships')}
+                <div className="px-3 py-1.5 text-xs font-semibold text-muted border-b mb-1 flex items-center justify-between">
+                  <span>{t('header.tenantMemberships')}</span>
+                  <span className="text-xs font-normal text-muted">({memberships.length})</span>
                 </div>
-                {memberships.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => {
-                      selectTenant(m.tenant_id);
-                      setIsTenantMenuOpen(false);
-                    }}
-                    className={`w-full text-start px-3 py-2 text-sm flex items-center justify-between hover:bg-surface-subtle ${
-                      m.tenant_id === activeTenantId ? 'font-semibold text-primary' : ''
-                    }`}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+
+                <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+                  {memberships.map((m) => {
+                    const isCurrent = m.tenant_id === activeTenantId;
+                    return (
+                      <button
+                        key={m.id}
+                        data-testid={`tenant-option-${m.tenant_id}`}
+                        onClick={() => handleSwitchTenant(m.tenant_id)}
+                        className={`w-full text-start px-3 py-2 text-sm flex items-center justify-between transition-colors ${
+                          isCurrent ? 'font-semibold text-primary' : 'hover:bg-surface-subtle text-main'
+                        }`}
+                        style={{
+                          background: isCurrent ? 'var(--color-primary-subtle)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 truncate" style={{ minWidth: 0 }}>
+                          {isCurrent ? (
+                            <Check
+                              size={16}
+                              className="text-primary flex-shrink-0"
+                              data-testid="active-tenant-check"
+                            />
+                          ) : (
+                            <span style={{ width: 16, display: 'inline-block' }} className="flex-shrink-0" />
+                          )}
+                          <div className="truncate">
+                            <div className="truncate">{m.tenant_name || m.tenant_slug || m.tenant_id.slice(0, 8)}</div>
+                            <div className="text-xs text-muted font-normal">{m.role}</div>
+                          </div>
+                        </div>
+                        {isCurrent && (
+                          <span className="badge badge-success text-xs flex-shrink-0">{t('header.activeBadge')}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t mt-1 pt-1 flex flex-col gap-0.5">
+                  <Link
+                    to="/select-tenant?create=true"
+                    data-testid="header-create-tenant-link"
+                    onClick={() => setIsTenantMenuOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-primary hover:bg-surface-subtle transition-colors"
                   >
-                    <div className="truncate">
-                      <div>{m.tenant_name || m.tenant_slug || m.tenant_id.slice(0, 8)}</div>
-                      <div className="text-xs text-muted">{m.role}</div>
-                    </div>
-                    {m.tenant_id === activeTenantId && (
-                      <span className="badge badge-success text-xs">{t('header.activeBadge')}</span>
-                    )}
-                  </button>
-                ))}
-                <div className="border-t mt-1 pt-1">
+                    <Plus size={14} className="text-primary flex-shrink-0" />
+                    <span>{t('tenants.createNewTenant')}</span>
+                  </Link>
                   <Link
                     to="/select-tenant"
                     onClick={() => setIsTenantMenuOpen(false)}
-                    className="block px-3 py-1.5 text-xs text-primary hover:underline"
+                    className="block px-3 py-1.5 text-xs text-muted hover:text-primary hover:underline transition-colors"
                   >
                     {t('header.manageAllTenants')}
                   </Link>

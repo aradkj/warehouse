@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Building, Plus, RefreshCw, Shield } from 'lucide-react';
 import { platformApi } from '../../api/endpoints/platform';
 import { ApiError, formatErrorMessage } from '../../api/errors';
@@ -29,6 +29,7 @@ export const SelectTenantPage: React.FC = () => {
   const { showToast } = useToast();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [isRetrying, setIsRetrying] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -37,6 +38,12 @@ export const SelectTenantPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createdInvitation, setCreatedInvitation] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get('create') === 'true') {
+      setIsCreateModalOpen(true);
+    }
+  }, [searchParams]);
 
   const handleRetryMemberships = async () => {
     setIsRetrying(true);
@@ -72,12 +79,16 @@ export const SelectTenantPage: React.FC = () => {
         slug: tenantSlug.trim().toLowerCase(),
       });
 
-      if (response.invitation_token) {
-        setCreatedInvitation(response.invitation_token);
-      }
-
       showToast(`Tenant "${response.name}" provisioned successfully.`, 'success');
       await refreshMemberships();
+      await selectTenant(response.id);
+
+      if (response.invitation_token) {
+        setCreatedInvitation(response.invitation_token);
+      } else {
+        resetModal();
+        navigate('/dashboard');
+      }
     } catch (err: unknown) {
       const msg = err instanceof ApiError ? formatErrorMessage(err) : 'Failed to create tenant.';
       setCreateError(msg);
@@ -92,6 +103,14 @@ export const SelectTenantPage: React.FC = () => {
     setTenantSlug('');
     setCreateError(null);
     setCreatedInvitation(null);
+  };
+
+  const handleModalClose = () => {
+    const hadInvitation = Boolean(createdInvitation);
+    resetModal();
+    if (hadInvitation) {
+      navigate('/dashboard');
+    }
   };
 
   return (
@@ -230,7 +249,7 @@ export const SelectTenantPage: React.FC = () => {
       {/* Provision Tenant Modal */}
       <Modal
         isOpen={isCreateModalOpen}
-        onClose={resetModal}
+        onClose={handleModalClose}
         title={t('tenants.createModalTitle')}
         description={t('tenants.createModalDesc')}
       >
@@ -252,8 +271,15 @@ export const SelectTenantPage: React.FC = () => {
               </p>
             </div>
             <div className="flex justify-end mt-4">
-              <Button variant="primary" onClick={resetModal}>
-                {t('common.close')}
+              <Button
+                variant="primary"
+                onClick={() => {
+                  resetModal();
+                  navigate('/dashboard');
+                }}
+              >
+                <span>{t('common.continue') || 'Continue to Dashboard'}</span>
+                <ArrowRight size={14} className="ml-1 rtl-flip" />
               </Button>
             </div>
           </div>

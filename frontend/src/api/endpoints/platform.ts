@@ -8,7 +8,7 @@ export interface RegisterTenantParams {
 
 export const platformApi = {
   registerTenant: async (params: RegisterTenantParams): Promise<TenantResponse> => {
-    return apiClient.post<TenantResponse>('/tenants', params, { skipAuth: true });
+    return apiClient.post<TenantResponse>('/tenants', params);
   },
 
   getTenant: async (tenantId: string): Promise<TenantResponse> => {

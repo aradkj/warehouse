@@ -96,10 +96,25 @@ class RegisterTenant(UseCase[RegisterTenantCommand, TenantView, IdentityUnitOfWo
     async def _execute(
         self, uow: IdentityUnitOfWork, command: RegisterTenantCommand
     ) -> Executed[TenantView]:
+        now = self._clock.now()
         tenant = Tenant.register(
-            slug=command.slug.strip().lower(), name=command.name, now=self._clock.now()
+            slug=command.slug.strip().lower(), name=command.name, now=now
         )
         await uow.tenants.add(tenant)
+        if command.user_id is not None:
+            scope = getattr(uow, "_scope", None)
+            if scope is not None and hasattr(scope, "set_tenant_context"):
+                try:
+                    await scope.set_tenant_context(tenant.id, user_id=str(command.user_id))
+                except TypeError:
+                    await scope.set_tenant_context(tenant.id)
+            membership = TenantMembership.create(
+                user_id=command.user_id,
+                tenant_id=tenant.id,
+                role=MembershipRole.ADMIN,
+                now=now,
+            )
+            await uow.memberships.add(membership)
         return Executed(
             view=TenantView.of(tenant),
             resource_type="tenant",

@@ -1001,3 +1001,30 @@ class TestOutboxRetentionPruner:
         deleted = await _run_prune_outbox(database=None, retention_days=14)
         assert deleted == 2
         assert mock_db.dispose.called
+
+    @pytest.mark.asyncio
+    async def test_register_tenant_with_user_creates_admin_membership(self) -> None:
+        from identity.application.commands import RegisterTenantCommand
+        from identity.domain.membership import MembershipRole
+        from shared.application.context import ActorType
+
+        app = build_fake_application()
+        user_id = UserId(uuid.uuid4())
+        ctx = RequestContext(actor_id=str(user_id), actor_type=ActorType.USER)
+        reg_cmd = RegisterTenantCommand(
+            context=ctx, slug="tenant-with-creator", name="Creator Tenant", user_id=user_id
+        )
+        reg_out = await app.use_cases.register_tenant(reg_cmd)
+        tenant_id = reg_out.view.id
+
+        membership = next(
+            (
+                m
+                for m in app.stores.memberships.values()
+                if m.user_id == user_id and m.tenant_id == tenant_id
+            ),
+            None,
+        )
+        assert membership is not None
+        assert membership.role == MembershipRole.ADMIN
+        assert "ADMIN" in membership.roles

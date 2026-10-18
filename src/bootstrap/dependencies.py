@@ -407,6 +407,28 @@ async def require_current_principal(
     return principal
 
 
+async def get_optional_current_principal(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_application_settings)],
+    token_service: Annotated[TokenService, Depends(get_token_service)],
+    database: Annotated[Database, Depends(get_database)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> Principal | None:
+    """Resolve authenticated principal if Bearer token is provided, or None if absent/invalid."""
+    if authorization is None:
+        return None
+    try:
+        return await get_current_principal(
+            request=request,
+            settings=settings,
+            token_service=token_service,
+            database=database,
+            authorization=authorization,
+        )
+    except Exception:
+        return None
+
+
 async def get_authenticated_tenant_context(
     request: Request,
     settings: Annotated[Settings, Depends(get_application_settings)],
@@ -1108,6 +1130,7 @@ __all__ = [
     "get_catalog_search_reader",
     "get_clock",
     "get_current_principal",
+    "get_optional_current_principal",
     "get_database",
     "get_event_dispatcher",
     "get_order_search_service",

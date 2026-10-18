@@ -103,7 +103,7 @@ export const AppLayout: React.FC = () => {
         <Header onToggleMobileNav={() => setIsMobileNavOpen(!isMobileNavOpen)} />
         <main className="page-content">
           <Breadcrumbs />
-          <Outlet />
+          <Outlet key={activeTenantId || 'default'} />
         </main>
       </div>
     </div>
