@@ -160,10 +160,12 @@ retention and the `Idempotent-Replay` header, are in
 
 Aggregates record events (`Order.placed`, `Reservation.released`, …) and expose
 `pull_events()`. The use case hands them to the `EventDispatcher` **inside** the
-transaction. Phase 1's dispatcher is in-process
-(`bootstrap.dependencies.get_event_dispatcher`); Phase 2 replaces it with a
-transactional outbox writer that writes to the same transaction — which is why the
-call site is already inside the transaction and why nothing dispatches after commit.
+database transaction. The active system implementation is `SqlAlchemyOutboxEventDispatcher`
+(wired in `bootstrap.dependencies.wire_use_cases`), which atomically persists each event
+to the `outbox_events` table before commit. Downstream delivery is handled asynchronously
+by the `OutboxRelayService` runner (polling with `SELECT ... FOR UPDATE SKIP LOCKED` and
+publishing to RabbitMQ with publisher confirms) and consumed idempotently via consumer inbox
+tables. Nothing dispatches after commit without transactional outbox persistence.
 
 ## Error mapping
 

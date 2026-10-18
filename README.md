@@ -204,7 +204,7 @@ The administrative web console provides full operational capabilities across all
   - English sets `dir="ltr"` and renders with **Inter** typography.
   - Persian sets `dir="rtl"` and renders with **Vazirmatn** typography.
 - **No-Reload Language Toggle:** Switching languages preserves the current route, active filters, open dialogs, and form input states without refreshing the page.
-- **Persistent Preference:** Stored in `localStorage` under `arad_language` and restored on subsequent visits.
+- **Persistent Preference:** Stored in `localStorage` under `arad_locale` and restored on subsequent visits.
 - **Full Coverage:** 100% of user-facing strings are localized across:
   - Navigation, headers, breadcrumbs, and tenant switchers
   - Forms, inputs, placeholders, and validation errors
@@ -217,7 +217,7 @@ The administrative web console provides full operational capabilities across all
 - **Catalog Management:** Product creation, SKU assignment, categorized attributes, and detail views.
 - **Inventory & Warehouses:** Multi-warehouse stock tracking (on hand, reserved, allocated), atomic stock adjustments, and reservation lifecycle tables.
 - **Orders:** Order creation with idempotency keys, order line item management, price snapshots, confirmation, and cancellation.
-- **Fulfillment:** Order fulfillment dispatch, carrier tracking lookups, and carrier dispatch retries.
+- **Fulfillment:** Warehouse allocation orchestration, fulfillment tasks, carrier interface boundary (`FulfillmentProviderPort`), and retry/compensation workflows (currently backed by `MockFulfillmentProvider`; live carrier adapters such as DHL/FedEx/UPS require external integration credentials).
 - **Search Console:** Faceted search over Orders, Products, and Audit events powered by Elasticsearch projections.
 - **Access Control:** RBAC role management, dynamic ABAC policies, and real-time interactive policy simulator.
 - **Tenancy & Security:** Multi-tenant memberships, role assignment, service account management, and API security settings.
@@ -261,9 +261,9 @@ PostgreSQL is the single authoritative system of record:
 
 Overselling is physically impossible:
 1. Available stock invariant: $\text{Available} = \text{On Hand} - \text{Reserved} - \text{Allocated} \ge 0$.
-2. Inbound reservation requests lock target rows using `SELECT ... FOR UPDATE`.
-3. If concurrent requests compete for the last unit, exactly one transaction succeeds; competing transactions observe zero available stock and reject cleanly.
-4. Verified by automated concurrency test suites running parallel async tasks.
+2. Inbound reservation requests lock target rows using `SELECT ... FOR UPDATE` ordered deterministically by ID to prevent deadlocks.
+3. If concurrent requests compete for the last unit, exactly one transaction secures the physical reservation. Competing requests handle unavailable stock according to configured `ARAD_UNAVAILABLE_STOCK_POLICY`: under `BACKORDER` (default), the order is created with status `BACKORDERED`; under `REJECT`, the order is refused with HTTP 409 Conflict. Available inventory never falls below zero.
+4. Verified by automated concurrency test suites running parallel async database transactions.
 
 ---
 

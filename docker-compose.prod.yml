@@ -219,6 +219,8 @@ services:
       ARAD_DATABASE_URL: postgresql+asyncpg://${ARAD_APP_DB_USER:-arad_app}:${ARAD_APP_DB_PASSWORD:?Application database password required}@postgres:5432/${POSTGRES_DB:-arad}
       ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_ENVIRONMENT: production
+      ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
+      ARAD_AUTH_REQUIRED: "true"
     command: ["python", "-m", "bootstrap.workers", "relay"]
     networks:
       - backend
@@ -259,6 +261,8 @@ services:
       ARAD_RABBITMQ_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_ELASTICSEARCH_URL: http://elastic:${ELASTICSEARCH_PASSWORD}@elasticsearch:9200
       ARAD_ENVIRONMENT: production
+      ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
+      ARAD_AUTH_REQUIRED: "true"
     command: ["python", "-m", "bootstrap.workers", "search-consumer"]
     networks:
       - backend
@@ -299,6 +303,8 @@ services:
       ARAD_CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-arad}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       ARAD_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       ARAD_ENVIRONMENT: production
+      ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
+      ARAD_AUTH_REQUIRED: "true"
     command: ["celery", "-A", "bootstrap.celery_app", "worker", "--loglevel=INFO"]
     networks:
       - backend
@@ -340,6 +346,8 @@ services:
       ARAD_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
+      ARAD_AUTH_JWT_SECRET: ${ARAD_AUTH_JWT_SECRET:?JWT Secret must be configured}
+      ARAD_AUTH_REQUIRED: "true"
     command:
       [
         "celery",

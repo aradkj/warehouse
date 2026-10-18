@@ -317,6 +317,8 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
+      ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
+      ARAD_AUTH_REQUIRED: "true"
 
     command:
       [
@@ -363,6 +365,8 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
+      ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
+      ARAD_AUTH_REQUIRED: "true"
 
     command:
       [
@@ -408,6 +412,8 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
+      ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
+      ARAD_AUTH_REQUIRED: "true"
 
     command:
       [
@@ -453,6 +459,8 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ARAD_ENVIRONMENT: production
       ARAD_LOG_LEVEL: INFO
+      ARAD_AUTH_JWT_SECRET: "local-docker-production-jwt-secret-min-32-chars-long"
+      ARAD_AUTH_REQUIRED: "true"
 
     command:
       [
