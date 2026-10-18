@@ -97,9 +97,7 @@ class RegisterTenant(UseCase[RegisterTenantCommand, TenantView, IdentityUnitOfWo
         self, uow: IdentityUnitOfWork, command: RegisterTenantCommand
     ) -> Executed[TenantView]:
         now = self._clock.now()
-        tenant = Tenant.register(
-            slug=command.slug.strip().lower(), name=command.name, now=now
-        )
+        tenant = Tenant.register(slug=command.slug.strip().lower(), name=command.name, now=now)
         await uow.tenants.add(tenant)
         if command.user_id is not None:
             scope = getattr(uow, "_scope", None)
