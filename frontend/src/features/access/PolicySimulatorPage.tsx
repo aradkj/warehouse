@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Play, Settings, XCircle } from 'lucide-react';
+import { CheckCircle2, Play, Settings, XCircle } from 'lucide-react';
 import { accessApi } from '../../api/endpoints/access';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { DecisionEvaluationResponse } from '../../api/types';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 
 export const PolicySimulatorPage: React.FC = () => {
+  const { t } = useTranslation();
   const [action, setAction] = useState('orders.confirm');
   const [resourceType, setResourceType] = useState('order');
   const [resourceId, setResourceId] = useState('');
@@ -63,9 +64,9 @@ export const PolicySimulatorPage: React.FC = () => {
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Policy Decision Simulator</h1>
+          <h1 className="text-2xl font-bold">{t('access.simulatorTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Simulate authorization requests against the engine's real RBAC roles and ABAC policy rules.
+            {t('access.simulatorSubtitle')}
           </p>
         </div>
       </div>
@@ -122,14 +123,14 @@ export const PolicySimulatorPage: React.FC = () => {
             </div>
 
             <Button variant="primary" type="submit" isLoading={isEvaluating} className="w-full mt-2">
-              <Play size={14} className="mr-1" />
+              <Play size={14} className="mr-1 rtl-flip" />
               <span>Evaluate Decision</span>
             </Button>
           </form>
         </Card>
 
         {/* Decision Output Card */}
-        <Card title="Evaluation Decision Output">
+        <Card title={t('access.outcomeTitle')}>
           {!result && !isEvaluating ? (
             <div className="text-center py-16 text-muted text-sm">
               <Settings size={36} className="mx-auto mb-2 opacity-50" />
@@ -152,7 +153,7 @@ export const PolicySimulatorPage: React.FC = () => {
                 {result.allowed ? <CheckCircle2 size={24} /> : <XCircle size={24} />}
                 <div>
                   <div className="text-base font-bold">
-                    {result.allowed ? 'DECISION: ALLOW' : 'DECISION: DENY'}
+                    {result.allowed ? `DECISION: ${t('access.allow')}` : `DECISION: ${t('access.deny')}`}
                   </div>
                   <div className="text-xs">{result.reason}</div>
                 </div>
@@ -162,7 +163,7 @@ export const PolicySimulatorPage: React.FC = () => {
                 <div><strong>Reason Code:</strong> {result.reason_code}</div>
                 <div><strong>Action Evaluated:</strong> {result.action}</div>
                 <div><strong>Resource Type:</strong> {result.resource_type}</div>
-                {result.policy_id && <div><strong>Matching Policy ID:</strong> {result.policy_id}</div>}
+                {result.policy_id && <div><strong>{t('access.matchedRule')}:</strong> {result.policy_id}</div>}
               </div>
 
               {result.missing_permissions && result.missing_permissions.length > 0 && (

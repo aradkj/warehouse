@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Warehouse } from 'lucide-react';
 import { useAuth } from '../../app/providers/AuthContext';
+import { useTranslation } from '../../i18n';
+import { LanguageSwitcher } from '../../components/common/LanguageSwitcher';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -24,7 +27,7 @@ export const RegisterPage: React.FC = () => {
     setError(null);
 
     if (!email.trim()) {
-      setError('Email is required.');
+      setError(t('auth.emailLabel') + ' ' + t('common.required'));
       return;
     }
 
@@ -58,6 +61,10 @@ export const RegisterPage: React.FC = () => {
   return (
     <div className="flex items-center justify-center min-h-screen px-4 bg-app">
       <div className="card w-full" style={{ maxWidth: '440px', padding: '2rem' }}>
+        <div className="flex justify-end mb-2">
+          <LanguageSwitcher />
+        </div>
+
         <div className="flex flex-col items-center mb-6 text-center">
           <div
             style={{
@@ -74,8 +81,8 @@ export const RegisterPage: React.FC = () => {
           >
             <Warehouse size={26} />
           </div>
-          <h1 className="text-xl font-bold text-main">Create Account</h1>
-          <p className="text-sm text-muted mt-1">Register for the Arad Platform</p>
+          <h1 className="text-xl font-bold text-main">{t('auth.registerTitle')}</h1>
+          <p className="text-sm text-muted mt-1">{t('auth.registerSubtitle')}</p>
         </div>
 
         {error && (
@@ -86,11 +93,11 @@ export const RegisterPage: React.FC = () => {
 
         <form onSubmit={handleSubmit} noValidate>
           <Input
-            label="Email address"
+            label={t('auth.emailLabel')}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="operator@example.com"
+            placeholder={t('auth.emailPlaceholder')}
             required
             autoComplete="email"
           />
@@ -100,7 +107,7 @@ export const RegisterPage: React.FC = () => {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder={t('auth.passwordPlaceholder')}
             required
             autoComplete="new-password"
           />
@@ -110,7 +117,7 @@ export const RegisterPage: React.FC = () => {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder={t('auth.passwordPlaceholder')}
             required
             autoComplete="new-password"
           />
@@ -138,14 +145,14 @@ export const RegisterPage: React.FC = () => {
             className="w-full mt-2"
             isLoading={isLoading}
           >
-            Create account
+            {t('auth.registerButton')}
           </Button>
         </form>
 
         <div className="mt-6 pt-4 border-t text-center text-xs text-muted">
-          Already have an account?{' '}
+          {t('auth.haveAccountPrompt')}{' '}
           <Link to="/login" className="font-semibold text-primary hover:underline">
-            Sign in
+            {t('auth.signInLink')}
           </Link>
         </div>
       </div>

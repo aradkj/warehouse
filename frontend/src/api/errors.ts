@@ -74,50 +74,57 @@ export function normalizeError(err: unknown): ApiError {
   });
 }
 
-export function formatErrorMessage(err: unknown): string {
+function getActiveLanguage(langOverride?: 'en' | 'fa'): 'en' | 'fa' {
+  if (langOverride) return langOverride;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('arad_locale');
+      if (stored === 'fa') return 'fa';
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return 'en';
+}
+
+const ERROR_MESSAGES: Record<'en' | 'fa', Record<string, string>> = {
+  en: {
+    authentication_failed: 'Invalid credentials or expired session.',
+    account_disabled: 'This user account is inactive or disabled.',
+    tenant_suspended: 'This tenant is suspended. Contact support.',
+    membership_disabled: 'Your membership in this tenant is disabled.',
+    forbidden: 'You do not have permission to perform this action.',
+    insufficient_inventory: 'Insufficient inventory available to reserve or fulfill.',
+    duplicate_idempotency_key: 'A request with this idempotency key was already submitted with different parameters.',
+    idempotency_in_progress: 'This operation is currently in progress. Please wait.',
+    duplicate_resource: 'A resource with this identifier or code already exists.',
+    cannot_remove_last_admin: 'Cannot remove the last administrator of the tenant.',
+    not_found: 'The requested resource was not found.',
+    search_unavailable: 'Search service is temporarily unavailable. Try again shortly.',
+  },
+  fa: {
+    authentication_failed: 'اطلاعات ورود نامعتبر است یا نشست کاری منقضی شده است.',
+    account_disabled: 'این حساب کاربری غیرفعال است.',
+    tenant_suspended: 'این سازمان به حالت تعلیق درآمده است. با پشتیبانی تماس بگیرید.',
+    membership_disabled: 'عضویت شما در این سازمان غیرفعال شده است.',
+    forbidden: 'شما مجوز انجام این عملیات را ندارید.',
+    insufficient_inventory: 'موجودی انبار برای رزرو یا تحویل کالا کافی نیست.',
+    duplicate_idempotency_key: 'درخواستی با این کلید قبلاً با پارامترهای متفاوت ارسال شده است.',
+    idempotency_in_progress: 'این عملیات در حال حاضر در دست اقدام است. لطفاً شکیبا باشید.',
+    duplicate_resource: 'موجودیتی با این شناسه یا کد قبلاً ثبت شده است.',
+    cannot_remove_last_admin: 'حذف آخرین مدیر سازمان امکان‌پذیر نیست.',
+    not_found: 'اطلاعات مورد نظر یافت نشد.',
+    search_unavailable: 'سرویس جستجو موقتاً در دسترس نیست. لطفاً دقایقی دیگر تلاش کنید.',
+  },
+};
+
+export function formatErrorMessage(err: unknown, lang?: 'en' | 'fa'): string {
+  const activeLang = getActiveLanguage(lang);
+
   if (err instanceof ApiError) {
-    let msg = '';
-    // Translate known codes to clear user-facing messages
-    switch (err.code) {
-      case 'authentication_failed':
-        msg = 'Invalid credentials or expired session.';
-        break;
-      case 'account_disabled':
-        msg = 'This user account is inactive or disabled.';
-        break;
-      case 'tenant_suspended':
-        msg = 'This tenant is suspended. Contact support.';
-        break;
-      case 'membership_disabled':
-        msg = 'Your membership in this tenant is disabled.';
-        break;
-      case 'forbidden':
-        msg = 'You do not have permission to perform this action.';
-        break;
-      case 'insufficient_inventory':
-        msg = 'Insufficient inventory available to reserve or fulfill.';
-        break;
-      case 'duplicate_idempotency_key':
-        msg = 'A request with this idempotency key was already submitted with different parameters.';
-        break;
-      case 'idempotency_in_progress':
-        msg = 'This operation is currently in progress. Please wait.';
-        break;
-      case 'duplicate_resource':
-        msg = 'A resource with this identifier or code already exists.';
-        break;
-      case 'cannot_remove_last_admin':
-        msg = 'Cannot remove the last administrator of the tenant.';
-        break;
-      case 'not_found':
-        msg = 'The requested resource was not found.';
-        break;
-      case 'search_unavailable':
-        msg = 'Search service is temporarily unavailable. Try again shortly.';
-        break;
-      default:
-        msg = err.message || `An error occurred (${err.code}).`;
-        break;
+    let msg = ERROR_MESSAGES[activeLang][err.code];
+    if (!msg) {
+      msg = err.message || (activeLang === 'fa' ? `خطایی رخ داد (${err.code}).` : `An error occurred (${err.code}).`);
     }
 
     if (err.details && typeof err.details === 'object' && 'fields' in err.details) {
@@ -147,5 +154,6 @@ export function formatErrorMessage(err: unknown): string {
     return err;
   }
 
-  return 'An unexpected error occurred.';
+  return activeLang === 'fa' ? 'خطای غیرمنتظره‌ای رخ داد.' : 'An unexpected error occurred.';
 }
+

@@ -4,6 +4,7 @@ import { inventoryApi } from '../../api/endpoints/inventory';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ReservationResponse, ReservationResultResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +14,7 @@ import { Modal } from '../../components/ui/Modal';
 
 export const ReservationsPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
 
   const [lookupId, setLookupId] = useState('');
   const [currentReservation, setCurrentReservation] = useState<ReservationResponse | null>(null);
@@ -122,9 +124,9 @@ export const ReservationsPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Stock Reservations</h1>
+          <h1 className="text-2xl font-bold">{t('inventory.reservationsTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Manage row-level transactional holds and verify allocation shortfalls.
+            {t('inventory.reservationsSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -134,7 +136,7 @@ export const ReservationsPage: React.FC = () => {
             onClick={() => setIsCreateOpen(true)}
           >
             <Plus size={14} className="mr-1" />
-            <span>Create Reservation</span>
+            <span>{t('inventory.newReservation')}</span>
           </Button>
         </div>
       </div>

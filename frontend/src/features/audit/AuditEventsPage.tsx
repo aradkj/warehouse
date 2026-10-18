@@ -4,6 +4,7 @@ import { auditApi } from '../../api/endpoints/audit';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { AuditEntryResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
@@ -12,6 +13,7 @@ import { Card } from '../../components/ui/Card';
 
 export const AuditEventsPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
   const [events, setEvents] = useState<AuditEntryResponse[]>([]);
   const [limit, setLimit] = useState<number>(50);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,20 +48,20 @@ export const AuditEventsPage: React.FC = () => {
       <div className="page-header">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Immutable Audit Trail</h1>
+            <h1 className="text-2xl font-bold">{t('audit.title')}</h1>
             <Badge variant="neutral" className="flex items-center gap-1">
               <Lock size={10} />
               <span>Read-Only Compliance</span>
             </Badge>
           </div>
           <p className="text-sm text-muted mt-1">
-            Tamper-proof chronological record of mutations and policy actions in PostgreSQL.
+            {t('audit.subtitle', { tenant: '' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={fetchEvents} isLoading={isLoading}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
         </div>
       </div>
@@ -89,12 +91,12 @@ export const AuditEventsPage: React.FC = () => {
       </Card>
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Reading immutable audit records...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : events.length === 0 ? (
         <Card>
           <EmptyState
-            title="No Audit Records"
-            description="No audit events have been recorded for this tenant yet."
+            title={t('audit.noAuditEvents')}
+            description={t('audit.subtitle', { tenant: '' })}
             icon={<FileText size={48} strokeWidth={1.5} />}
           />
         </Card>
@@ -104,11 +106,11 @@ export const AuditEventsPage: React.FC = () => {
             <thead>
               <tr>
                 <th style={{ width: '30px' }} />
-                <th>Occurred Timestamp</th>
-                <th>Action</th>
-                <th>Resource Type</th>
-                <th>Resource Identifier</th>
-                <th>Actor ID</th>
+                <th>{t('audit.timestamp')}</th>
+                <th>{t('audit.action')}</th>
+                <th>{t('audit.resourceType')}</th>
+                <th>{t('audit.resourceId')}</th>
+                <th>{t('audit.actor')}</th>
               </tr>
             </thead>
             <tbody>
@@ -121,10 +123,10 @@ export const AuditEventsPage: React.FC = () => {
                       style={{ cursor: 'pointer' }}
                     >
                       <td className="text-muted">
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} className="rtl-flip" />}
                       </td>
                       <td className="text-xs text-muted font-mono">
-                        {new Date(ev.occurred_at).toLocaleString()}
+                        {formatDate(ev.occurred_at)}
                       </td>
                       <td className="text-xs font-semibold font-mono text-main">
                         {ev.action}
@@ -142,7 +144,7 @@ export const AuditEventsPage: React.FC = () => {
                             <div><strong>Audit Event ID:</strong> {ev.id}</div>
                             <div><strong>Actor UUID:</strong> {ev.actor_id}</div>
                             <div><strong>Full Resource ID:</strong> {ev.resource_id}</div>
-                            {ev.correlation_id && <div><strong>Correlation ID:</strong> {ev.correlation_id}</div>}
+                            {ev.correlation_id && <div><strong>{t('audit.correlationId')}:</strong> {ev.correlation_id}</div>}
                             {ev.causation_id && <div><strong>Causation ID:</strong> {ev.causation_id}</div>}
                             <div><strong>Event Details JSON:</strong></div>
                             <pre className="p-2 bg-white rounded border text-xs overflow-x-auto max-h-48">

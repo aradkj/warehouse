@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { Layers, Plus, RefreshCw, Warehouse } from 'lucide-react';
+import { Layers, Plus, RefreshCw } from 'lucide-react';
 import { inventoryApi } from '../../api/endpoints/inventory';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { AvailabilityResponse, WarehouseResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
-import { Input } from '../../components/ui/Input';
 import { CursorPagination } from '../../components/ui/Pagination';
 import { StockAdjustmentModal } from './StockAdjustmentModal';
 
 export const InventoryPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
   const [items, setItems] = useState<AvailabilityResponse[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseResponse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
@@ -77,9 +78,9 @@ export const InventoryPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Stock Availability</h1>
+          <h1 className="text-2xl font-bold">{t('inventory.title')}</h1>
           <p className="text-sm text-muted mt-1">
-            Authoritative inventory positions under PostgreSQL row-level locks.
+            {t('inventory.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -90,7 +91,7 @@ export const InventoryPage: React.FC = () => {
             isLoading={isLoading}
           >
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button
             size="sm"
@@ -101,7 +102,7 @@ export const InventoryPage: React.FC = () => {
             }}
           >
             <Plus size={14} className="mr-1" />
-            <span>Adjust Stock</span>
+            <span>{t('inventory.adjustStockBtn')}</span>
           </Button>
         </div>
       </div>
@@ -113,14 +114,14 @@ export const InventoryPage: React.FC = () => {
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-4 flex-wrap">
           <div style={{ minWidth: '220px' }}>
             <label className="text-xs font-semibold text-muted uppercase block mb-1">
-              Warehouse
+              {t('inventory.warehouse')}
             </label>
             <select
               className="form-select text-xs py-1.5"
               value={selectedWarehouse}
               onChange={(e) => setSelectedWarehouse(e.target.value)}
             >
-              <option value="">All Warehouses</option>
+              <option value="">{t('common.all')}</option>
               {warehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name} ({w.code})
@@ -131,12 +132,12 @@ export const InventoryPage: React.FC = () => {
 
           <div style={{ flex: 1, minWidth: '240px' }}>
             <label className="text-xs font-semibold text-muted uppercase block mb-1">
-              SKU Identifier
+              {t('inventory.sku')}
             </label>
             <input
               type="text"
               className="form-input text-xs py-1.5 font-mono"
-              placeholder="Filter by exact SKU UUID..."
+              placeholder={t('inventory.filterPlaceholder')}
               value={skuFilter}
               onChange={(e) => setSkuFilter(e.target.value)}
             />
@@ -144,7 +145,7 @@ export const InventoryPage: React.FC = () => {
 
           <div className="pt-5">
             <Button size="sm" variant="secondary" type="submit">
-              Apply Filter
+              {t('common.filter')}
             </Button>
           </div>
         </form>
@@ -152,13 +153,13 @@ export const InventoryPage: React.FC = () => {
 
       {/* Inventory Table */}
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Querying inventory availability...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : items.length === 0 ? (
         <Card>
           <EmptyState
-            title="No Inventory Positions Found"
-            description="No inventory items match your criteria. Record a stock adjustment to add initial quantities."
-            actionLabel="Adjust Stock"
+            title={t('inventory.noStockRecords')}
+            description={t('inventory.subtitle')}
+            actionLabel={t('inventory.adjustStockBtn')}
             onAction={() => setIsAdjustOpen(true)}
             icon={<Layers size={48} strokeWidth={1.5} />}
           />
@@ -168,13 +169,13 @@ export const InventoryPage: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>SKU Identifier</th>
-                <th>Warehouse</th>
-                <th>On Hand</th>
-                <th>Reserved</th>
-                <th>Available</th>
-                <th>Last Updated</th>
-                <th>Actions</th>
+                <th>{t('inventory.sku')}</th>
+                <th>{t('inventory.warehouse')}</th>
+                <th>{t('inventory.onHand')}</th>
+                <th>{t('inventory.reserved')}</th>
+                <th>{t('inventory.available')}</th>
+                <th>{t('common.updated_at')}</th>
+                <th>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -189,9 +190,9 @@ export const InventoryPage: React.FC = () => {
                       <div>{wh?.name || it.warehouse_id.slice(0, 8)}</div>
                       {wh && <div className="text-muted font-mono">{wh.code}</div>}
                     </td>
-                    <td className="text-xs font-medium">{it.on_hand}</td>
+                    <td className="text-xs font-medium">{formatNumber(it.on_hand)}</td>
                     <td className="text-xs font-medium text-warning">
-                      {it.reserved > 0 ? it.reserved : '0'}
+                      {it.reserved > 0 ? formatNumber(it.reserved) : '0'}
                     </td>
                     <td>
                       <span
@@ -203,11 +204,11 @@ export const InventoryPage: React.FC = () => {
                               : 'text-success'
                         }`}
                       >
-                        {it.available}
+                        {formatNumber(it.available)}
                       </span>
                     </td>
                     <td className="text-xs text-muted">
-                      {new Date(it.updated_at).toLocaleString()}
+                      {formatDate(it.updated_at)}
                     </td>
                     <td>
                       <Button
@@ -218,7 +219,7 @@ export const InventoryPage: React.FC = () => {
                           setIsAdjustOpen(true);
                         }}
                       >
-                        Adjust
+                        {t('common.edit')}
                       </Button>
                     </td>
                   </tr>

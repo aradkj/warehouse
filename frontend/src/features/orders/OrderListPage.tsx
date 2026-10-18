@@ -5,6 +5,7 @@ import { ordersApi } from '../../api/endpoints/orders';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { OrderResponse, OrderStatus } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
@@ -14,6 +15,7 @@ import { CursorPagination } from '../../components/ui/Pagination';
 
 export const OrderListPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
   const [orders, setOrders] = useState<OrderResponse[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -63,9 +65,9 @@ export const OrderListPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Orders</h1>
+          <h1 className="text-2xl font-bold">{t('orders.title')}</h1>
           <p className="text-sm text-muted mt-1">
-            Authoritative order lifecycle management and fulfillment status.
+            {t('orders.subtitle', { tenant: '' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -76,12 +78,12 @@ export const OrderListPage: React.FC = () => {
             isLoading={isLoading}
           >
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Link to="/orders/new">
             <Button size="sm" variant="primary">
               <Plus size={14} className="mr-1" />
-              <span>Create Order</span>
+              <span>{t('orders.newOrderBtn')}</span>
             </Button>
           </Link>
         </div>
@@ -93,14 +95,14 @@ export const OrderListPage: React.FC = () => {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Filter size={16} className="text-muted" />
-            <span className="text-xs font-semibold text-muted uppercase">Lifecycle Status</span>
+            <span className="text-xs font-semibold text-muted uppercase">{t('common.status')}</span>
             <div style={{ width: '160px' }}>
               <select
                 className="form-select text-xs py-1"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="">All Orders</option>
+                <option value="">{t('common.all')}</option>
                 <option value="PENDING">PENDING</option>
                 <option value="CONFIRMED">CONFIRMED</option>
                 <option value="CANCELLED">CANCELLED</option>
@@ -108,23 +110,23 @@ export const OrderListPage: React.FC = () => {
             </div>
           </div>
           <div className="text-xs text-muted">
-            Showing <strong className="text-main">{orders.length}</strong> orders
+            {formatNumber(orders.length)} {t('orders.title')}
           </div>
         </div>
       </Card>
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Loading orders...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : orders.length === 0 ? (
         <Card>
           <EmptyState
-            title="No Orders Found"
+            title={t('orders.noOrdersFound')}
             description={
               statusFilter
-                ? `No orders currently match status "${statusFilter}". Try selecting a different filter.`
-                : 'No orders have been submitted for this tenant yet.'
+                ? `${t('orders.noOrdersFound')} (${statusFilter})`
+                : t('orders.noOrdersYet')
             }
-            actionLabel="Submit First Order"
+            actionLabel={t('orders.newOrderBtn')}
             onAction={() => window.location.assign('/orders/new')}
             icon={<ClipboardList size={48} strokeWidth={1.5} />}
           />
@@ -134,13 +136,13 @@ export const OrderListPage: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Order ID</th>
-                <th>Status</th>
-                <th>Customer Ref</th>
-                <th>Lines</th>
-                <th>Total Value</th>
-                <th>Placed At</th>
-                <th>Actions</th>
+                <th>{t('orders.orderId')}</th>
+                <th>{t('orders.status')}</th>
+                <th>{t('orders.customerRef')}</th>
+                <th>{t('orders.itemsCount')}</th>
+                <th>{t('orders.totalAmount')}</th>
+                <th>{t('orders.createdAt')}</th>
+                <th>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -153,7 +155,7 @@ export const OrderListPage: React.FC = () => {
                       : 'neutral';
 
                 const totalFormatted = order.total
-                  ? `${(order.total.amount_minor / 100).toFixed(2)} ${order.total.currency}`
+                  ? `${formatNumber(order.total.amount_minor / 100, { minimumFractionDigits: 2 })} ${order.total.currency}`
                   : '—';
 
                 return (
@@ -170,16 +172,16 @@ export const OrderListPage: React.FC = () => {
                       {order.customer_reference || <span className="text-muted">—</span>}
                     </td>
                     <td className="text-xs">
-                      {order.total_quantity} unit(s) ({order.lines.length} lines)
+                      {formatNumber(order.total_quantity)} ({formatNumber(order.lines.length)})
                     </td>
                     <td className="text-xs font-medium">{totalFormatted}</td>
                     <td className="text-xs text-muted">
-                      {new Date(order.placed_at).toLocaleString()}
+                      {formatDate(order.placed_at)}
                     </td>
                     <td>
                       <Link to={`/orders/${order.id}`}>
                         <Button size="sm" variant="secondary">
-                          View Details
+                          {t('common.details')}
                         </Button>
                       </Link>
                     </td>

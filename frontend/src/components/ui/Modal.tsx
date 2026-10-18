@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Button } from './Button';
+import { useTranslation } from '../../i18n';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -19,6 +19,8 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
 }) => {
+  const { t } = useTranslation();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -55,7 +57,7 @@ export const Modal: React.FC<ModalProps> = ({
           <button
             onClick={onClose}
             className="text-muted hover:text-main p-1 rounded"
-            aria-label="Close dialog"
+            aria-label={t('common.close')}
             style={{ background: 'none', border: 'none', cursor: 'pointer' }}
           >
             <X size={18} />

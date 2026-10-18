@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   Boxes,
-  CheckCircle2,
-  Clock,
   Layers,
   Package,
   Plus,
@@ -19,6 +17,7 @@ import { ordersApi } from '../../api/endpoints/orders';
 import { AvailabilityResponse, OrderResponse, ProductResponse, WarehouseResponse } from '../../api/types';
 import { useAuth } from '../../app/providers/AuthContext';
 import { useTenant } from '../../app/providers/TenantContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -27,6 +26,7 @@ import { Card } from '../../components/ui/Card';
 export const DashboardPage: React.FC = () => {
   const { principal } = useAuth();
   const { activeTenantId, activeMembership } = useTenant();
+  const { t, formatNumber } = useTranslation();
 
   const [orders, setOrders] = useState<OrderResponse[]>([]);
   const [products, setProducts] = useState<ProductResponse[]>([]);
@@ -74,7 +74,6 @@ export const DashboardPage: React.FC = () => {
   // Derive counts from actual authoritative records loaded
   const pendingOrders = orders.filter((o) => o.status === 'PENDING').length;
   const confirmedOrders = orders.filter((o) => o.status === 'CONFIRMED').length;
-  const cancelledOrders = orders.filter((o) => o.status === 'CANCELLED').length;
 
   const lowStockItems = availability.filter((a) => a.available <= 5 && a.on_hand > 0);
   const outOfStockItems = availability.filter((a) => a.available <= 0);
@@ -83,10 +82,9 @@ export const DashboardPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Platform Overview</h1>
+          <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
           <p className="text-sm text-muted mt-1">
-            Authoritative operational status for tenant{' '}
-            <strong className="text-main">{activeMembership?.tenant_name || activeTenantId}</strong>
+            {t('dashboard.subtitle', { tenant: activeMembership?.tenant_name || activeTenantId || '' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -97,12 +95,12 @@ export const DashboardPage: React.FC = () => {
             isLoading={isLoading}
           >
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Link to="/orders/new">
             <Button size="sm" variant="primary">
               <Plus size={14} className="mr-1" />
-              <span>Create Order</span>
+              <span>{t('orders.newOrderBtn')}</span>
             </Button>
           </Link>
         </div>
@@ -115,10 +113,10 @@ export const DashboardPage: React.FC = () => {
         <Card className="mb-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-muted uppercase">Recent Orders</div>
-              <div className="text-2xl font-bold mt-1">{orders.length}</div>
+              <div className="text-xs font-semibold text-muted uppercase">{t('dashboard.recentOrdersTitle')}</div>
+              <div className="text-2xl font-bold mt-1">{formatNumber(orders.length)}</div>
               <div className="text-xs text-muted mt-1">
-                {pendingOrders} pending • {confirmedOrders} confirmed
+                {formatNumber(pendingOrders)} pending • {formatNumber(confirmedOrders)} confirmed
               </div>
             </div>
             <div
@@ -137,10 +135,10 @@ export const DashboardPage: React.FC = () => {
         <Card className="mb-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-muted uppercase">Catalog Products</div>
-              <div className="text-2xl font-bold mt-1">{products.length}</div>
+              <div className="text-xs font-semibold text-muted uppercase">{t('dashboard.totalProducts')}</div>
+              <div className="text-2xl font-bold mt-1">{formatNumber(products.length)}</div>
               <div className="text-xs text-muted mt-1">
-                {products.filter((p) => p.status === 'ACTIVE').length} active for sale
+                {formatNumber(products.filter((p) => p.status === 'ACTIVE').length)} {t('common.active')}
               </div>
             </div>
             <div
@@ -159,9 +157,9 @@ export const DashboardPage: React.FC = () => {
         <Card className="mb-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-muted uppercase">Active Warehouses</div>
-              <div className="text-2xl font-bold mt-1">{warehouses.length}</div>
-              <div className="text-xs text-muted mt-1">Designated fulfillment sites</div>
+              <div className="text-xs font-semibold text-muted uppercase">{t('dashboard.warehouses')}</div>
+              <div className="text-2xl font-bold mt-1">{formatNumber(warehouses.length)}</div>
+              <div className="text-xs text-muted mt-1">{t('inventory.warehousesSubtitle')}</div>
             </div>
             <div
               style={{
@@ -179,12 +177,12 @@ export const DashboardPage: React.FC = () => {
         <Card className="mb-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-muted uppercase">Stock Alerts</div>
+              <div className="text-xs font-semibold text-muted uppercase">{t('inventory.title')}</div>
               <div className="text-2xl font-bold mt-1 text-danger">
-                {lowStockItems.length + outOfStockItems.length}
+                {formatNumber(lowStockItems.length + outOfStockItems.length)}
               </div>
               <div className="text-xs text-muted mt-1">
-                {outOfStockItems.length} depleted • {lowStockItems.length} low stock
+                {formatNumber(outOfStockItems.length)} depleted • {formatNumber(lowStockItems.length)} low stock
               </div>
             </div>
             <div
@@ -205,27 +203,27 @@ export const DashboardPage: React.FC = () => {
       <div className="grid grid-cols-2 gap-6">
         {/* Recent Orders */}
         <Card
-          title="Recent Orders"
-          subtitle="Authoritative PostgreSQL orders"
+          title={t('dashboard.recentOrdersTitle')}
+          subtitle={t('dashboard.subtitle', { tenant: activeMembership?.tenant_name || '' })}
           action={
             <Link to="/orders" className="text-xs text-primary font-medium hover:underline">
-              View All Orders →
+              {t('dashboard.viewAllOrders')}
             </Link>
           }
         >
           {orders.length === 0 ? (
             <div className="text-center py-8 text-muted text-sm">
-              No orders placed yet in this tenant.
+              {t('dashboard.noRecentOrders')}
             </div>
           ) : (
             <div className="table-container border-0">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Order ID</th>
-                    <th>Status</th>
-                    <th>Lines</th>
-                    <th>Total</th>
+                    <th>{t('orders.orderId')}</th>
+                    <th>{t('orders.status')}</th>
+                    <th>{t('orders.itemsCount')}</th>
+                    <th>{t('orders.totalAmount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -247,10 +245,10 @@ export const DashboardPage: React.FC = () => {
                         <td>
                           <Badge variant={badgeVariant}>{order.status}</Badge>
                         </td>
-                        <td className="text-xs">{order.lines.length} lines</td>
+                        <td className="text-xs">{formatNumber(order.lines.length)}</td>
                         <td className="text-xs font-medium">
                           {order.total
-                            ? `${(order.total.amount_minor / 100).toFixed(2)} ${order.total.currency}`
+                            ? `${formatNumber(order.total.amount_minor / 100, { minimumFractionDigits: 2 })} ${order.total.currency}`
                             : '—'}
                         </td>
                       </tr>
@@ -264,27 +262,27 @@ export const DashboardPage: React.FC = () => {
 
         {/* Low Stock Alerts */}
         <Card
-          title="Inventory Positions"
-          subtitle="Real-time on-hand and reserved allocation"
+          title={t('inventory.title')}
+          subtitle={t('inventory.subtitle')}
           action={
             <Link to="/inventory" className="text-xs text-primary font-medium hover:underline">
-              Full Inventory →
+              {t('common.view')} →
             </Link>
           }
         >
           {availability.length === 0 ? (
             <div className="text-center py-8 text-muted text-sm">
-              No inventory positions tracked yet. Adjust stock to begin.
+              {t('inventory.noStockRecords')}
             </div>
           ) : (
             <div className="table-container border-0">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>SKU ID</th>
-                    <th>Warehouse</th>
-                    <th>Available</th>
-                    <th>On Hand</th>
+                    <th>{t('inventory.sku')}</th>
+                    <th>{t('inventory.warehouse')}</th>
+                    <th>{t('inventory.available')}</th>
+                    <th>{t('inventory.onHand')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -298,10 +296,10 @@ export const DashboardPage: React.FC = () => {
                             item.available <= 0 ? 'text-danger' : item.available <= 5 ? 'text-warning' : 'text-success'
                           }`}
                         >
-                          {item.available}
+                          {formatNumber(item.available)}
                         </span>
                       </td>
-                      <td className="text-xs text-muted">{item.on_hand}</td>
+                      <td className="text-xs text-muted">{formatNumber(item.on_hand)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -312,14 +310,14 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Quick Action Workflows */}
-      <Card title="Permitted Operational Workflows" className="mt-6">
+      <Card title={t('dashboard.quickActions')} className="mt-6">
         <div className="grid grid-cols-4 gap-4">
           <Link to="/orders/new" className="card p-4 hover:bg-surface-subtle text-decoration-none">
             <div className="flex items-center gap-3">
               <Package size={20} className="text-primary" />
               <div>
-                <div className="font-semibold text-sm">Submit Order</div>
-                <div className="text-xs text-muted">Idempotent submission</div>
+                <div className="font-semibold text-sm">{t('orders.createTitle')}</div>
+                <div className="text-xs text-muted">{t('orders.createSubtitle')}</div>
               </div>
             </div>
           </Link>
@@ -328,8 +326,8 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <Layers size={20} className="text-primary" />
               <div>
-                <div className="font-semibold text-sm">Adjust Stock</div>
-                <div className="text-xs text-muted">Goods receipt & counts</div>
+                <div className="font-semibold text-sm">{t('inventory.adjustStockBtn')}</div>
+                <div className="text-xs text-muted">{t('inventory.subtitle')}</div>
               </div>
             </div>
           </Link>
@@ -338,8 +336,8 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <Boxes size={20} className="text-primary" />
               <div>
-                <div className="font-semibold text-sm">Catalog & SKUs</div>
-                <div className="text-xs text-muted">Manage product prices</div>
+                <div className="font-semibold text-sm">{t('nav.catalog')}</div>
+                <div className="text-xs text-muted">{t('catalog.subtitle', { tenant: '' })}</div>
               </div>
             </div>
           </Link>
@@ -348,8 +346,8 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <Truck size={20} className="text-primary" />
               <div>
-                <div className="font-semibold text-sm">Fulfillment Search</div>
-                <div className="text-xs text-muted">Track carrier dispatches</div>
+                <div className="font-semibold text-sm">{t('nav.searchOrders')}</div>
+                <div className="text-xs text-muted">{t('search.ordersSubtitle')}</div>
               </div>
             </div>
           </Link>

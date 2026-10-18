@@ -4,28 +4,25 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
-  Clock,
-  Layers,
   RefreshCw,
-  ShoppingBag,
   Truck,
-  Warehouse,
 } from 'lucide-react';
 import { ordersApi } from '../../api/endpoints/orders';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { OrderResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
-import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { RequestFulfillmentModal } from '../fulfillment/RequestFulfillmentModal';
 
 export const OrderDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
 
   const [order, setOrder] = useState<OrderResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,19 +92,19 @@ export const OrderDetailPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="text-center py-12 text-muted">Loading order details...</div>;
+    return <div className="text-center py-12 text-muted">{t('common.loading')}</div>;
   }
 
   if (error || !order) {
     return (
       <div>
         <Alert variant="danger" className="mb-4">
-          {error || 'Order not found.'}
+          {error || t('errors.notFound')}
         </Alert>
         <Link to="/orders">
           <Button variant="secondary" size="sm">
-            <ArrowLeft size={14} className="mr-1" />
-            <span>Back to Orders</span>
+            <ArrowLeft size={14} className="mr-1 rtl-flip" />
+            <span>{t('orders.backToOrders')}</span>
           </Button>
         </Link>
       </div>
@@ -122,22 +119,22 @@ export const OrderDetailPage: React.FC = () => {
         : 'neutral';
 
   const totalFormatted = order.total
-    ? `${(order.total.amount_minor / 100).toFixed(2)} ${order.total.currency}`
-    : 'Restricted (Financials Read Permission Required)';
+    ? `${formatNumber(order.total.amount_minor / 100, { minimumFractionDigits: 2 })} ${order.total.currency}`
+    : 'Restricted';
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Link to="/orders" className="text-xs text-muted hover:text-main flex items-center">
-          <ArrowLeft size={14} className="mr-1" />
-          <span>Back to Orders</span>
+          <ArrowLeft size={14} className="mr-1 rtl-flip" />
+          <span>{t('orders.backToOrders')}</span>
         </Link>
       </div>
 
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Order {order.id.slice(0, 8)}</h1>
+            <h1 className="text-2xl font-bold">{t('orders.detailTitle')} {order.id.slice(0, 8)}</h1>
             <Badge variant={badgeVariant}>{order.status}</Badge>
           </div>
           <div className="text-xs text-muted font-mono mt-1">
@@ -148,7 +145,7 @@ export const OrderDetailPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={fetchOrder}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
 
           {order.status === 'PENDING' && (
@@ -159,7 +156,7 @@ export const OrderDetailPage: React.FC = () => {
               </Button>
               <Button size="sm" variant="danger" onClick={() => setIsCancelModalOpen(true)}>
                 <Ban size={14} className="mr-1" />
-                <span>Cancel Order</span>
+                <span>{t('orders.cancelBtn')}</span>
               </Button>
             </>
           )}
@@ -171,7 +168,7 @@ export const OrderDetailPage: React.FC = () => {
               onClick={() => setIsFulfillModalOpen(true)}
             >
               <Truck size={14} className="mr-1" />
-              <span>Request Fulfillment</span>
+              <span>{t('orders.fulfillBtn')}</span>
             </Button>
           )}
         </div>
@@ -180,56 +177,56 @@ export const OrderDetailPage: React.FC = () => {
       {/* Cancellation Notice */}
       {order.status === 'CANCELLED' && (
         <Alert variant="info" className="mb-6" title="Order Cancelled">
-          This order was cancelled on {order.cancelled_at ? new Date(order.cancelled_at).toLocaleString() : 'N/A'}.<br />
+          This order was cancelled on {order.cancelled_at ? formatDate(order.cancelled_at) : 'N/A'}.<br />
           <strong>Reason:</strong> {order.cancellation_reason || 'No cancellation reason provided.'}
         </Alert>
       )}
 
       {/* Overview Cards */}
       <div className="grid grid-cols-3 gap-6 mb-6">
-        <Card title="Summary & Financials" className="mb-0">
+        <Card title={t('orders.summaryCard')} className="mb-0">
           <div className="space-y-3 text-xs">
             <div>
-              <span className="text-muted block">Customer Reference:</span>
+              <span className="text-muted block">{t('orders.customerRef')}:</span>
               <strong className="text-sm font-semibold">{order.customer_reference || 'None'}</strong>
             </div>
             <div>
-              <span className="text-muted block">Total Quantity:</span>
-              <span className="font-medium text-sm">{order.total_quantity} items across {order.lines.length} line(s)</span>
+              <span className="text-muted block">{t('orders.itemsCount')}:</span>
+              <span className="font-medium text-sm">{formatNumber(order.total_quantity)} items across {formatNumber(order.lines.length)} line(s)</span>
             </div>
             <div>
-              <span className="text-muted block">Total Order Value:</span>
+              <span className="text-muted block">{t('orders.totalAmount')}:</span>
               <span className="font-mono text-sm font-bold text-main">{totalFormatted}</span>
             </div>
             <div>
-              <span className="text-muted block">Placed At:</span>
-              <span className="font-mono">{new Date(order.placed_at).toLocaleString()}</span>
+              <span className="text-muted block">{t('orders.createdAt')}:</span>
+              <span className="font-mono">{formatDate(order.placed_at)}</span>
             </div>
           </div>
         </Card>
 
-        <Card title="Inventory Reservation" className="col-span-2 mb-0">
+        <Card title={t('inventory.reservationsTitle')} className="col-span-2 mb-0">
           {order.reservation ? (
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between pb-2 border-b">
                 <div>
-                  <span className="text-muted block">Reservation State:</span>
+                  <span className="text-muted block">{t('common.status')}:</span>
                   <Badge variant={order.reservation.status === 'HELD' ? 'warning' : 'success'}>
                     {order.reservation.status}
                   </Badge>
                 </div>
                 <div>
-                  <span className="text-muted block">Allocated Quantity:</span>
-                  <strong className="text-sm">{order.reservation.allocated_quantity} units</strong>
+                  <span className="text-muted block">{t('common.quantity')}:</span>
+                  <strong className="text-sm">{formatNumber(order.reservation.allocated_quantity)} units</strong>
                 </div>
                 <div>
-                  <span className="text-muted block">Expires At:</span>
-                  <span className="font-mono">{new Date(order.reservation.expires_at).toLocaleString()}</span>
+                  <span className="text-muted block">{t('inventory.expiresAt')}:</span>
+                  <span className="font-mono">{formatDate(order.reservation.expires_at)}</span>
                 </div>
               </div>
 
               <div>
-                <span className="text-muted block mb-1">Allocated Warehouses:</span>
+                <span className="text-muted block mb-1">{t('inventory.warehousesTitle')}:</span>
                 <div className="flex flex-wrap gap-2">
                   {order.reservation.warehouse_ids.map((wid) => (
                     <span key={wid} className="badge badge-neutral font-mono text-xs">
@@ -248,17 +245,17 @@ export const OrderDetailPage: React.FC = () => {
       </div>
 
       {/* Order Lines Table */}
-      <Card title="Order Lines" subtitle="Snapshotted product information and unit list pricing">
+      <Card title={t('orders.lineItems')} subtitle="Snapshotted product information and unit list pricing">
         <div className="table-container border-0">
           <table className="data-table">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Product Name</th>
-                <th>SKU Code</th>
-                <th>Quantity</th>
-                <th>Unit Price</th>
-                <th>Line Total</th>
+                <th>{t('catalog.name')}</th>
+                <th>{t('catalog.sku')}</th>
+                <th>{t('common.quantity')}</th>
+                <th>{t('catalog.unitPrice')}</th>
+                <th>{t('orders.totalAmount')}</th>
               </tr>
             </thead>
             <tbody>
@@ -267,15 +264,15 @@ export const OrderDetailPage: React.FC = () => {
                   <td className="text-xs text-muted font-mono">{line.line_number}</td>
                   <td className="font-semibold text-xs text-main">{line.product_name}</td>
                   <td className="font-mono text-xs font-bold text-primary">{line.sku_code}</td>
-                  <td className="text-xs font-medium">{line.quantity}</td>
+                  <td className="text-xs font-medium">{formatNumber(line.quantity)}</td>
                   <td className="text-xs font-mono">
                     {line.unit_price
-                      ? `${(line.unit_price.amount_minor / 100).toFixed(2)} ${line.unit_price.currency}`
+                      ? `${formatNumber(line.unit_price.amount_minor / 100, { minimumFractionDigits: 2 })} ${line.unit_price.currency}`
                       : '—'}
                   </td>
                   <td className="text-xs font-mono font-bold">
                     {line.line_total
-                      ? `${(line.line_total.amount_minor / 100).toFixed(2)} ${line.line_total.currency}`
+                      ? `${formatNumber(line.line_total.amount_minor / 100, { minimumFractionDigits: 2 })} ${line.line_total.currency}`
                       : '—'}
                   </td>
                 </tr>
@@ -289,7 +286,7 @@ export const OrderDetailPage: React.FC = () => {
       <Modal
         isOpen={isCancelModalOpen}
         onClose={() => setIsCancelModalOpen(false)}
-        title="Cancel Order"
+        title={t('orders.cancelBtn')}
         description="Cancelling an order terminates downstream fulfillment and immediately releases all reserved stock."
       >
         <form onSubmit={handleCancelSubmit}>
@@ -307,10 +304,10 @@ export const OrderDetailPage: React.FC = () => {
 
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="secondary" onClick={() => setIsCancelModalOpen(false)} disabled={isCancelling}>
-              Keep Order
+              {t('common.cancel')}
             </Button>
             <Button variant="danger" type="submit" isLoading={isCancelling}>
-              Confirm Cancellation
+              {t('orders.cancelBtn')}
             </Button>
           </div>
         </form>

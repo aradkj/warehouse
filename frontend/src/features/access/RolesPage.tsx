@@ -4,6 +4,7 @@ import { accessApi } from '../../api/endpoints/access';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { PermissionResponse, RoleResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +14,7 @@ import { Modal } from '../../components/ui/Modal';
 
 export const RolesPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t } = useTranslation();
   const [roles, setRoles] = useState<RoleResponse[]>([]);
   const [permissions, setPermissions] = useState<PermissionResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,15 +92,15 @@ export const RolesPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Roles (RBAC)</h1>
+          <h1 className="text-2xl font-bold">{t('access.rolesTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            System and custom tenant roles mapping to fine-grained permission catalogs.
+            {t('access.rolesSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={fetchData} isLoading={isLoading}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button size="sm" variant="primary" onClick={() => setIsCreateOpen(true)}>
             <Plus size={14} className="mr-1" />

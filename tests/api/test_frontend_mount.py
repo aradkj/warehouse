@@ -42,16 +42,25 @@ async def test_frontend_spa_serving_and_route_precedence(mock_frontend_dist: Pat
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Root / returns index.html
+        # 1. Root / returns index.html with no-cache headers to prevent stale SPA shell caching
         resp = await client.get("/")
         assert resp.status_code == 200
         assert "<title>Arad Platform</title>" in resp.text
         assert resp.headers["content-type"].startswith("text/html")
+        assert "no-cache" in resp.headers.get("cache-control", "")
+        assert "no-store" in resp.headers.get("cache-control", "")
 
-        # 2. Direct client-side route navigation falls back to index.html
+        # 2. Direct client-side route navigation falls back to index.html with no-cache headers
         resp_spa = await client.get("/orders/new")
         assert resp_spa.status_code == 200
         assert "<title>Arad Platform</title>" in resp_spa.text
+        assert "no-cache" in resp_spa.headers.get("cache-control", "")
+
+        # 2b. /login and /login/ also return index.html
+        resp_login = await client.get("/login/")
+        assert resp_login.status_code == 200
+        assert "<title>Arad Platform</title>" in resp_login.text
+        assert "no-cache" in resp_login.headers.get("cache-control", "")
 
         # 3. Static asset in assets/ directory
         resp_css = await client.get("/assets/test.css")

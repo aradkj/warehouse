@@ -5,17 +5,18 @@ import { catalogApi } from '../../api/endpoints/catalog';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ProductResponse, ProductStatus } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { CursorPagination } from '../../components/ui/Pagination';
-import { Select } from '../../components/ui/Select';
 import { CreateProductModal } from './CreateProductModal';
 
 export const ProductListPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
   const [products, setProducts] = useState<ProductResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [currentCursor, setCurrentCursor] = useState<string | null>(null);
@@ -70,9 +71,9 @@ export const ProductListPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Catalog & Products</h1>
+          <h1 className="text-2xl font-bold">{t('catalog.title')}</h1>
           <p className="text-sm text-muted mt-1">
-            Authoritative catalog items and SKU definitions with pricing.
+            {t('catalog.subtitle', { tenant: '' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -83,7 +84,7 @@ export const ProductListPage: React.FC = () => {
             isLoading={isLoading}
           >
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button
             size="sm"
@@ -91,7 +92,7 @@ export const ProductListPage: React.FC = () => {
             onClick={() => setIsCreateOpen(true)}
           >
             <Plus size={14} className="mr-1" />
-            <span>New Product</span>
+            <span>{t('catalog.newProductBtn')}</span>
           </Button>
         </div>
       </div>
@@ -102,14 +103,14 @@ export const ProductListPage: React.FC = () => {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Filter size={16} className="text-muted" />
-            <span className="text-xs font-semibold text-muted uppercase">Filters</span>
+            <span className="text-xs font-semibold text-muted uppercase">{t('common.status')}</span>
             <div style={{ width: '160px' }}>
               <select
                 className="form-select text-xs py-1"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="">All Statuses</option>
+                <option value="">{t('common.all')}</option>
                 <option value="DRAFT">DRAFT</option>
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="ARCHIVED">ARCHIVED</option>
@@ -117,23 +118,23 @@ export const ProductListPage: React.FC = () => {
             </div>
           </div>
           <div className="text-xs text-muted">
-            Showing <strong className="text-main">{products.length}</strong> items
+            {formatNumber(products.length)} {t('catalog.title')}
           </div>
         </div>
       </Card>
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Loading catalog products...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : products.length === 0 ? (
         <Card>
           <EmptyState
-            title="No Products Found"
+            title={t('catalog.noProductsFound')}
             description={
               statusFilter
-                ? `No products currently match status "${statusFilter}". Try clearing your filters.`
-                : 'Your catalog has no products registered yet. Create your first product.'
+                ? `${t('catalog.noProductsFound')} (${statusFilter})`
+                : t('catalog.noProductsYet')
             }
-            actionLabel="Create Product"
+            actionLabel={t('catalog.newProductBtn')}
             onAction={() => setIsCreateOpen(true)}
             icon={<Boxes size={48} strokeWidth={1.5} />}
           />
@@ -143,12 +144,12 @@ export const ProductListPage: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Product Name</th>
+                <th>{t('catalog.name')}</th>
                 <th>Slug</th>
-                <th>Status</th>
+                <th>{t('catalog.status')}</th>
                 <th>SKUs</th>
-                <th>Created</th>
-                <th>Actions</th>
+                <th>{t('common.created_at')}</th>
+                <th>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -175,15 +176,15 @@ export const ProductListPage: React.FC = () => {
                       <Badge variant={badgeVariant}>{p.status}</Badge>
                     </td>
                     <td className="text-xs">
-                      <span className="badge badge-neutral">{p.skus.length} SKU(s)</span>
+                      <span className="badge badge-neutral">{formatNumber(p.skus.length)} SKU(s)</span>
                     </td>
                     <td className="text-xs text-muted">
-                      {new Date(p.created_at).toLocaleDateString()}
+                      {formatDate(p.created_at)}
                     </td>
                     <td>
                       <Link to={`/catalog/products/${p.id}`}>
                         <Button size="sm" variant="secondary">
-                          Manage
+                          {t('common.edit')}
                         </Button>
                       </Link>
                     </td>

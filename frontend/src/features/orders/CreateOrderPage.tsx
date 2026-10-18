@@ -6,6 +6,7 @@ import { ordersApi } from '../../api/endpoints/orders';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ProductResponse, SkuResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -20,6 +21,7 @@ interface LineItem {
 export const CreateOrderPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { t } = useTranslation();
 
   const [customerReference, setCustomerReference] = useState('');
   const [lines, setLines] = useState<LineItem[]>([
@@ -61,11 +63,11 @@ export const CreateOrderPage: React.FC = () => {
     // Validate lines
     for (const line of lines) {
       if (!line.skuId.trim()) {
-        setError('All order lines must have a selected SKU.');
+        setError(t('orders.skuRequiredError'));
         return;
       }
       if (line.quantity <= 0) {
-        setError('Order line quantities must be greater than zero.');
+        setError(t('orders.quantityError'));
         return;
       }
     }
@@ -101,16 +103,16 @@ export const CreateOrderPage: React.FC = () => {
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       <div className="flex items-center gap-2 mb-4">
         <Button size="sm" variant="secondary" onClick={() => navigate('/orders')}>
-          <ArrowLeft size={14} className="mr-1" />
-          <span>Back to Orders</span>
+          <ArrowLeft size={14} className="mr-1 rtl-flip" />
+          <span>{t('orders.backToOrders')}</span>
         </Button>
       </div>
 
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Submit New Order</h1>
+          <h1 className="text-2xl font-bold">{t('orders.createTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Authoritative order submission with transactional stock reservation.
+            {t('orders.createSubtitle')}
           </p>
         </div>
       </div>
@@ -118,31 +120,26 @@ export const CreateOrderPage: React.FC = () => {
       {error && <Alert variant="danger" className="mb-6">{error}</Alert>}
 
       <form onSubmit={handleSubmit} noValidate>
-        <Card title="Order Header" className="mb-6">
+        <Card title={t('orders.orderHeader')} className="mb-6">
           <Input
-            label="Customer Reference / Order PO"
+            label={t('orders.customerRefLabel')}
             value={customerReference}
             onChange={(e) => setCustomerReference(e.target.value)}
-            placeholder="e.g. PO-2026-99214"
+            placeholder={t('orders.customerRefPlaceholder')}
             maxLength={128}
-            helperText="External identifier for this customer or sales channel."
           />
 
           <div className="text-xs text-muted font-mono mt-2 pt-2 border-t">
-            Idempotency-Key: <span className="font-semibold text-main">{idempotencyKey}</span>
-            <span className="block text-muted text-xs font-sans mt-0.5">
-              Stable key ensures safe retries without duplicate order creation.
-            </span>
+            {t('orders.idempotencyKey')} <span className="font-semibold text-main">{idempotencyKey}</span>
           </div>
         </Card>
 
         <Card
-          title="Order Line Items"
-          subtitle="Prices are authoritatively resolved from the catalog"
+          title={t('orders.lineItemsTitle')}
           action={
             <Button size="sm" variant="secondary" type="button" onClick={handleAddLine}>
               <Plus size={14} className="mr-1" />
-              <span>Add Line</span>
+              <span>{t('orders.addItem')}</span>
             </Button>
           }
           className="mb-6"
@@ -151,13 +148,13 @@ export const CreateOrderPage: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '60%' }}>SKU Selection</th>
-                  <th style={{ width: '25%' }}>Quantity</th>
-                  <th style={{ width: '15%' }}>Action</th>
+                  <th style={{ width: '60%' }}>{t('orders.skuSelection')}</th>
+                  <th style={{ width: '25%' }}>{t('orders.quantityLabel')}</th>
+                  <th style={{ width: '15%' }}>{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line, idx) => (
+                {lines.map((line) => (
                   <tr key={line.id}>
                     <td>
                       {availableSkus.length > 0 ? (
@@ -167,7 +164,7 @@ export const CreateOrderPage: React.FC = () => {
                           onChange={(e) => handleLineChange(line.id, 'skuId', e.target.value)}
                           required
                         >
-                          <option value="">Select a catalog SKU...</option>
+                          <option value="">{t('orders.selectSkuPlaceholder')}</option>
                           {availableSkus.map((s) => (
                             <option key={s.id} value={s.id}>
                               {s.code} — {s.name} {s.unit_price ? `(${((s.unit_price.amount_minor ?? 0) / 100).toFixed(2)} ${s.unit_price.currency})` : ''}
@@ -201,7 +198,7 @@ export const CreateOrderPage: React.FC = () => {
                         type="button"
                         onClick={() => handleRemoveLine(line.id)}
                         disabled={lines.length <= 1}
-                        title="Remove line"
+                        title={t('orders.removeItem')}
                       >
                         <Trash2 size={12} />
                       </Button>
@@ -215,11 +212,11 @@ export const CreateOrderPage: React.FC = () => {
 
         <div className="flex justify-end gap-3">
           <Button variant="secondary" type="button" onClick={() => navigate('/orders')}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" isLoading={isSubmitting}>
             <ShoppingBag size={14} className="mr-1" />
-            <span>Submit Order</span>
+            <span>{t('orders.submitOrder')}</span>
           </Button>
         </div>
       </form>

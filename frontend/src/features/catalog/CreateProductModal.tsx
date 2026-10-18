@@ -3,6 +3,7 @@ import { catalogApi } from '../../api/endpoints/catalog';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ProductResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -20,6 +21,7 @@ export const CreateProductModal: React.FC<CreateProductModalProps> = ({
   onCreated,
 }) => {
   const { showToast } = useToast();
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -31,7 +33,7 @@ export const CreateProductModal: React.FC<CreateProductModalProps> = ({
     setError(null);
 
     if (!name.trim() || !slug.trim()) {
-      setError('Product name and slug are required.');
+      setError(t('common.required'));
       return;
     }
 
@@ -67,14 +69,14 @@ export const CreateProductModal: React.FC<CreateProductModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Create New Product"
-      description="Add a new catalog product. Products start in DRAFT status until activated."
+      title={t('catalog.createTitle')}
+      description={t('catalog.createDesc')}
     >
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       <form onSubmit={handleSubmit}>
         <Input
-          label="Product Name"
+          label={t('catalog.nameInput')}
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -102,7 +104,7 @@ export const CreateProductModal: React.FC<CreateProductModalProps> = ({
         />
 
         <div className="form-group">
-          <label className="form-label">Description (Optional)</label>
+          <label className="form-label">{t('catalog.descriptionInput')}</label>
           <textarea
             className="form-textarea"
             rows={3}
@@ -115,10 +117,10 @@ export const CreateProductModal: React.FC<CreateProductModalProps> = ({
 
         <div className="flex justify-end gap-2 mt-6">
           <Button variant="secondary" onClick={handleClose} disabled={isSubmitting}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" isLoading={isSubmitting}>
-            Create Product
+            {t('catalog.createTitle')}
           </Button>
         </div>
       </form>

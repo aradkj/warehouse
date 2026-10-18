@@ -3,11 +3,11 @@ import { inventoryApi } from '../../api/endpoints/inventory';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { AdjustmentResponse, WarehouseResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
-import { Select } from '../../components/ui/Select';
 
 export interface StockAdjustmentModalProps {
   isOpen: boolean;
@@ -27,6 +27,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   defaultSkuId = '',
 }) => {
   const { showToast } = useToast();
+  const { t, formatNumber } = useTranslation();
 
   const [warehouseId, setWarehouseId] = useState(defaultWarehouseId);
   const [skuId, setSkuId] = useState(defaultSkuId);
@@ -96,22 +97,22 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title={step === 'confirm' ? 'Confirm Stock Adjustment' : 'Adjust Stock'}
-      description="Record physical stock receipts, damage write-offs, or cycle counts into the immutable inventory ledger."
+      title={step === 'confirm' ? 'Confirm Stock Adjustment' : t('inventory.adjustStockBtn')}
+      description={t('inventory.adjustModalDesc')}
     >
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       {step === 'form' ? (
         <form onSubmit={handleReview}>
           <div className="form-group">
-            <label className="form-label">Warehouse <span className="text-danger">*</span></label>
+            <label className="form-label">{t('inventory.warehouseSelect')} <span className="text-danger">*</span></label>
             <select
               className="form-select"
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               required
             >
-              <option value="">Select a warehouse...</option>
+              <option value="">{t('common.selectOption')}</option>
               {warehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name} ({w.code})
@@ -131,27 +132,27 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Quantity Delta (Signed integer)"
+              label="Quantity Delta"
               type="number"
               value={quantityDelta}
               onChange={(e) => setQuantityDelta(Number(e.target.value))}
-              helperText="Positive to add stock, negative to deduct."
+              helperText={t('inventory.deltaHelp')}
               required
             />
 
             <div className="form-group">
-              <label className="form-label">Adjustment Reason <span className="text-danger">*</span></label>
+              <label className="form-label">{t('inventory.reasonLabel')} <span className="text-danger">*</span></label>
               <select
                 className="form-select"
                 value={reason}
                 onChange={(e) => setReason(e.target.value as any)}
                 required
               >
-                <option value="GOODS_RECEIPT">GOODS_RECEIPT (Receipt)</option>
-                <option value="CUSTOMER_RETURN">CUSTOMER_RETURN (Return)</option>
-                <option value="CYCLE_COUNT">CYCLE_COUNT (Count correction)</option>
-                <option value="DAMAGE">DAMAGE (Damage write-off)</option>
-                <option value="MANUAL_CORRECTION">MANUAL_CORRECTION (Correction)</option>
+                <option value="GOODS_RECEIPT">GOODS_RECEIPT</option>
+                <option value="CUSTOMER_RETURN">CUSTOMER_RETURN</option>
+                <option value="CYCLE_COUNT">CYCLE_COUNT</option>
+                <option value="DAMAGE">DAMAGE</option>
+                <option value="MANUAL_CORRECTION">MANUAL_CORRECTION</option>
               </select>
             </div>
           </div>
@@ -160,43 +161,52 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
             label="Audit Note (Optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="PO #10294 or physical inspection note"
-            maxLength={256}
+            placeholder="e.g. Approved by inventory manager"
           />
 
           <div className="flex justify-end gap-2 mt-6">
-            <Button variant="secondary" onClick={handleClose}>
-              Cancel
+            <Button variant="secondary" type="button" onClick={handleClose}>
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" type="submit">
-              Review Adjustment →
+              Review Adjustment
             </Button>
           </div>
         </form>
       ) : (
         <div>
-          <Alert variant="warning" className="mb-4">
-            Please verify the adjustment details. This transaction will write an immutable row to the stock movement ledger.
-          </Alert>
-
-          <div className="card p-4 bg-surface-subtle mb-4 text-xs font-mono">
-            <div className="mb-2"><strong>Warehouse:</strong> {selectedWarehouse?.name} ({warehouseId})</div>
-            <div className="mb-2"><strong>SKU:</strong> {skuId}</div>
-            <div className="mb-2">
-              <strong>Change:</strong>{' '}
+          <div className="bg-surface-subtle p-4 rounded-md mb-4 text-xs font-mono space-y-1">
+            <div><strong>{t('inventory.warehouseSelect')}:</strong> {selectedWarehouse?.name} ({warehouseId})</div>
+            <div><strong>SKU:</strong> {skuId}</div>
+            <div>
+              <strong>{t('common.quantity')}:</strong>{' '}
               <span className={`font-bold ${quantityDelta > 0 ? 'text-success' : 'text-danger'}`}>
                 {quantityDelta > 0 ? `+${quantityDelta}` : quantityDelta} units
               </span>
             </div>
-            <div className="mb-2"><strong>Reason:</strong> {reason}</div>
+            <div><strong>{t('inventory.reasonLabel')}:</strong> {reason}</div>
             {note && <div><strong>Note:</strong> {note}</div>}
           </div>
 
-          <div className="flex justify-end gap-2 mt-6">
-            <Button variant="secondary" onClick={() => setStep('form')} disabled={isSubmitting}>
-              ← Back to Edit
+          <p className="text-xs text-muted mb-4">
+            This operation writes directly to the immutable inventory ledger and cannot be undone.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setStep('form')}
+              disabled={isSubmitting}
+            >
+              {t('common.back')}
             </Button>
-            <Button variant="danger" onClick={handleConfirmSubmit} isLoading={isSubmitting}>
+            <Button
+              variant="primary"
+              type="button"
+              onClick={handleConfirmSubmit}
+              isLoading={isSubmitting}
+            >
               Confirm Mutation
             </Button>
           </div>

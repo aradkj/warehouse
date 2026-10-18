@@ -4,6 +4,7 @@ import { accessApi } from '../../api/endpoints/access';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { PolicyResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
@@ -14,6 +15,7 @@ import { Modal } from '../../components/ui/Modal';
 
 export const PoliciesPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t } = useTranslation();
   const [policies, setPolicies] = useState<PolicyResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,15 +110,15 @@ export const PoliciesPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Access Policies (ABAC)</h1>
+          <h1 className="text-2xl font-bold">{t('access.policiesTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Fine-grained Attribute-Based Access Control policies evaluated dynamically on every request.
+            {t('access.policiesSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={fetchPolicies} isLoading={isLoading}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button size="sm" variant="primary" onClick={() => setIsCreateOpen(true)}>
             <Plus size={14} className="mr-1" />

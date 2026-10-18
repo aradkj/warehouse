@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { healthApi } from '../../api/endpoints/health';
+import { useTranslation } from '../../i18n';
 
 export const SystemStatusIndicator: React.FC = () => {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<'checking' | 'healthy' | 'unhealthy'>('checking');
   const [dbStatus, setDbStatus] = useState<string>('unknown');
 
@@ -34,10 +36,10 @@ export const SystemStatusIndicator: React.FC = () => {
 
   const label =
     status === 'healthy'
-      ? `System Online (DB: ${dbStatus})`
+      ? t('header.systemOnline', { dbStatus })
       : status === 'checking'
-        ? 'Checking API...'
-        : 'API Unreachable';
+        ? t('header.checkingApi')
+        : t('header.apiUnreachable');
 
   return (
     <div
@@ -54,7 +56,7 @@ export const SystemStatusIndicator: React.FC = () => {
           display: 'inline-block',
         }}
       />
-      <span className="hidden lg:inline">{status === 'healthy' ? 'API Online' : 'Degraded'}</span>
+      <span className="hidden lg:inline">{status === 'healthy' ? t('header.apiOnline') : t('header.degraded')}</span>
     </div>
   );
 };

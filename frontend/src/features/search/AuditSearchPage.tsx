@@ -4,6 +4,7 @@ import { searchApi } from '../../api/endpoints/search';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { AuditSearchResultResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -12,6 +13,7 @@ import { Input } from '../../components/ui/Input';
 
 export const AuditSearchPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
 
   const [query, setQuery] = useState('');
   const [action, setAction] = useState('');
@@ -55,9 +57,9 @@ export const AuditSearchPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Search Audit Trail</h1>
+          <h1 className="text-2xl font-bold">{t('search.auditTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Search immutable compliance events across actor actions, resource modifications, and authorization decisions.
+            {t('search.auditSubtitle')}
           </p>
         </div>
       </div>
@@ -67,15 +69,15 @@ export const AuditSearchPage: React.FC = () => {
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div>
               <Input
-                label="Free-text Search"
+                label={t('search.queryPlaceholder')}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Actor ID, reason, or keyword..."
+                placeholder={t('search.queryPlaceholder')}
               />
             </div>
             <div>
               <Input
-                label="Action Filter"
+                label={t('audit.action')}
                 value={action}
                 onChange={(e) => setAction(e.target.value)}
                 placeholder="e.g. order.create or product.activate"
@@ -83,7 +85,7 @@ export const AuditSearchPage: React.FC = () => {
             </div>
             <div>
               <Input
-                label="Resource Type Filter"
+                label={t('audit.resourceType')}
                 value={resourceType}
                 onChange={(e) => setResourceType(e.target.value)}
                 placeholder="e.g. order, product, inventory"
@@ -94,7 +96,7 @@ export const AuditSearchPage: React.FC = () => {
           <div className="flex justify-end">
             <Button variant="primary" type="submit" isLoading={isLoading}>
               <Search size={14} className="mr-1" />
-              <span>Search Audit Logs</span>
+              <span>{t('search.searchBtn')}</span>
             </Button>
           </div>
         </form>
@@ -103,17 +105,17 @@ export const AuditSearchPage: React.FC = () => {
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Searching audit events...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : hasSearched && results.length === 0 ? (
         <Card className="text-center py-10">
           <FileText size={40} className="mx-auto text-muted mb-2" />
-          <h2 className="text-base font-semibold mb-1">No Audit Events Found</h2>
-          <p className="text-sm text-muted">No audit events match your search query.</p>
+          <h2 className="text-base font-semibold mb-1">{t('audit.noAuditEvents')}</h2>
+          <p className="text-sm text-muted">{t('audit.noAuditEvents')}</p>
         </Card>
       ) : results.length > 0 ? (
         <div>
           <div className="text-xs text-muted mb-3">
-            Found <strong className="text-main">{total}</strong> event(s)
+            {total !== null ? `${formatNumber(total)} results` : ''}
           </div>
 
           <div className="table-container">
@@ -121,11 +123,11 @@ export const AuditSearchPage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={{ width: '30px' }} />
-                  <th>Timestamp</th>
-                  <th>Action</th>
-                  <th>Resource</th>
-                  <th>Actor ID</th>
-                  <th>Decision</th>
+                  <th>{t('audit.timestamp')}</th>
+                  <th>{t('audit.action')}</th>
+                  <th>{t('audit.resourceType')}</th>
+                  <th>{t('audit.actor')}</th>
+                  <th>{t('access.decision')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,10 +142,10 @@ export const AuditSearchPage: React.FC = () => {
                         style={{ cursor: 'pointer' }}
                       >
                         <td className="text-muted">
-                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} className="rtl-flip" />}
                         </td>
                         <td className="text-xs text-muted font-mono">
-                          {new Date(item.occurred_at).toLocaleString()}
+                          {formatDate(item.occurred_at)}
                         </td>
                         <td className="text-xs font-semibold text-main font-mono">{item.action}</td>
                         <td className="text-xs font-mono">

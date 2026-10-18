@@ -6,6 +6,7 @@ import { ApiError, formatErrorMessage } from '../../api/errors';
 import { RoleResponse, TenantMembershipResponse } from '../../api/types';
 import { useTenant } from '../../app/providers/TenantContext';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -16,6 +17,7 @@ import { Modal } from '../../components/ui/Modal';
 export const TenantMembershipsPage: React.FC = () => {
   const { activeTenantId } = useTenant();
   const { showToast } = useToast();
+  const { t, formatDate } = useTranslation();
 
   const [memberships, setMemberships] = useState<TenantMembershipResponse[]>([]);
   const [roles, setRoles] = useState<RoleResponse[]>([]);
@@ -138,9 +140,9 @@ export const TenantMembershipsPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Tenant Memberships & Team</h1>
+          <h1 className="text-2xl font-bold">{t('identity.membersTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Manage users, assign RBAC roles, and generate invitation tokens.
+            {t('identity.membersSubtitle', { tenant: '' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,7 +152,7 @@ export const TenantMembershipsPage: React.FC = () => {
           </Button>
           <Button size="sm" variant="primary" onClick={() => setIsInviteOpen(true)}>
             <Mail size={14} className="mr-1" />
-            <span>Generate Invitation</span>
+            <span>{t('identity.inviteBtn')}</span>
           </Button>
         </div>
       </div>
@@ -158,19 +160,19 @@ export const TenantMembershipsPage: React.FC = () => {
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Loading memberships...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : (
-        <Card title="Tenant Members">
+        <Card title={t('identity.membersTitle')}>
           <div className="table-container border-0">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>User ID</th>
-                  <th>Status</th>
-                  <th>Primary Role</th>
-                  <th>Assigned Roles</th>
-                  <th>Joined At</th>
-                  <th>Actions</th>
+                  <th>{t('identity.userEmail')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('identity.role')}</th>
+                  <th>{t('access.permissions')}</th>
+                  <th>{t('identity.joinedAt')}</th>
+                  <th>{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>

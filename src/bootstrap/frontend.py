@@ -53,9 +53,15 @@ def mount_frontend_spa(app: FastAPI, settings: Settings) -> None:
 
     clean_prefix = settings.api_prefix.strip("/")
 
+    index_headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
     @app.get("/", include_in_schema=False)
     async def serve_index() -> Response:
-        return FileResponse(index_html_path)
+        return FileResponse(index_html_path, headers=index_headers)
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa_or_file(full_path: str) -> Response:
@@ -73,4 +79,5 @@ def mount_frontend_spa(app: FastAPI, settings: Settings) -> None:
             return FileResponse(safe_path)
 
         # 4. Fallback to SPA index.html for client-side routing
-        return FileResponse(index_html_path)
+        return FileResponse(index_html_path, headers=index_headers)
+

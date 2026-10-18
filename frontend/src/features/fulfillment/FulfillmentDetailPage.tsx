@@ -15,6 +15,7 @@ import { fulfillmentApi } from '../../api/endpoints/fulfillment';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { FulfillmentResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -23,6 +24,7 @@ import { Card } from '../../components/ui/Card';
 export const FulfillmentDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
 
   const [fulfillment, setFulfillment] = useState<FulfillmentResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,19 +66,19 @@ export const FulfillmentDetailPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="text-center py-12 text-muted">Loading fulfillment record...</div>;
+    return <div className="text-center py-12 text-muted">{t('common.loading')}</div>;
   }
 
   if (error || !fulfillment) {
     return (
       <div>
         <Alert variant="danger" className="mb-4">
-          {error || 'Fulfillment not found.'}
+          {error || t('fulfillment.notFound')}
         </Alert>
         <Link to="/orders">
           <Button variant="secondary" size="sm">
-            <ArrowLeft size={14} className="mr-1" />
-            <span>Back to Orders</span>
+            <ArrowLeft size={14} className="mr-1 rtl-flip" />
+            <span>{t('common.back')}</span>
           </Button>
         </Link>
       </div>
@@ -92,32 +94,32 @@ export const FulfillmentDetailPage: React.FC = () => {
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Link to={`/orders/${fulfillment.order_id}`} className="text-xs text-muted hover:text-main flex items-center">
-          <ArrowLeft size={14} className="mr-1" />
-          <span>Back to Order {fulfillment.order_id.slice(0, 8)}</span>
+          <ArrowLeft size={14} className="mr-1 rtl-flip" />
+          <span>{t('common.back')} ({fulfillment.order_id.slice(0, 8)})</span>
         </Link>
       </div>
 
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Fulfillment {fulfillment.id.slice(0, 8)}</h1>
+            <h1 className="text-2xl font-bold">{t('fulfillment.detailTitle')} {fulfillment.id.slice(0, 8)}</h1>
             <Badge variant={badgeVariant}>{fulfillment.status}</Badge>
           </div>
           <div className="text-xs text-muted font-mono mt-1">
-            Fulfillment UUID: {fulfillment.id} • Version: {fulfillment.version}
+            UUID: {fulfillment.id} • Version: {formatNumber(fulfillment.version)}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={fetchFulfillment}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
 
           {isFailed && (
             <Button size="sm" variant="danger" onClick={handleRetry} isLoading={isRetrying}>
               <RotateCw size={14} className="mr-1" />
-              <span>Retry Carrier Dispatch</span>
+              <span>{t('common.retry')}</span>
             </Button>
           )}
         </div>
@@ -135,10 +137,10 @@ export const FulfillmentDetailPage: React.FC = () => {
 
       {/* Details Grid */}
       <div className="grid grid-cols-3 gap-6 mb-6">
-        <Card title="Dispatch Overview" className="mb-0">
+        <Card title={t('fulfillment.detailTitle')} className="mb-0">
           <div className="space-y-3 text-xs">
             <div>
-              <span className="text-muted block">Associated Order:</span>
+              <span className="text-muted block">{t('orders.orderId')}:</span>
               <Link to={`/orders/${fulfillment.order_id}`} className="font-mono text-primary font-bold hover:underline">
                 {fulfillment.order_id}
               </Link>
@@ -148,24 +150,24 @@ export const FulfillmentDetailPage: React.FC = () => {
               <span className="font-mono">{fulfillment.warehouse_id}</span>
             </div>
             <div>
-              <span className="text-muted block">Created At:</span>
-              <span className="font-mono">{new Date(fulfillment.created_at).toLocaleString()}</span>
+              <span className="text-muted block">{t('common.created_at')}:</span>
+              <span className="font-mono">{formatDate(fulfillment.created_at)}</span>
             </div>
             <div>
-              <span className="text-muted block">Last Updated:</span>
-              <span className="font-mono">{new Date(fulfillment.updated_at).toLocaleString()}</span>
+              <span className="text-muted block">{t('common.updated_at')}:</span>
+              <span className="font-mono">{formatDate(fulfillment.updated_at)}</span>
             </div>
           </div>
         </Card>
 
-        <Card title="Carrier & Tracking" className="mb-0">
+        <Card title={t('fulfillment.tracking')} className="mb-0">
           <div className="space-y-3 text-xs">
             <div>
-              <span className="text-muted block">Assigned Carrier:</span>
+              <span className="text-muted block">{t('fulfillment.carrier')}:</span>
               <strong className="text-sm font-semibold">{fulfillment.carrier || 'Pending Carrier Assignment'}</strong>
             </div>
             <div>
-              <span className="text-muted block">Tracking Number:</span>
+              <span className="text-muted block">{t('fulfillment.trackingNumber')}:</span>
               {fulfillment.tracking_number ? (
                 <span className="font-mono text-sm font-bold text-main">{fulfillment.tracking_number}</span>
               ) : (
@@ -174,12 +176,12 @@ export const FulfillmentDetailPage: React.FC = () => {
             </div>
             <div>
               <span className="text-muted block">Retry Counter:</span>
-              <span className="font-medium">{fulfillment.retry_count} of {fulfillment.max_retries} attempts</span>
+              <span className="font-medium">{formatNumber(fulfillment.retry_count)} / {formatNumber(fulfillment.max_retries)}</span>
             </div>
           </div>
         </Card>
 
-        <Card title="Lifecycle Status" className="mb-0">
+        <Card title={t('common.status')} className="mb-0">
           <div className="text-center py-3">
             <div className="text-lg font-bold mb-1">{fulfillment.status}</div>
             <p className="text-xs text-muted">
@@ -194,15 +196,15 @@ export const FulfillmentDetailPage: React.FC = () => {
       </div>
 
       {/* Picking Tasks Table */}
-      <Card title="Warehouse Picking Tasks" subtitle="Individual SKU items designated for this dispatch">
+      <Card title={t('fulfillment.tasksTitle')} subtitle="Individual SKU items designated for this dispatch">
         <div className="table-container border-0">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Task ID</th>
-                <th>SKU Identifier</th>
-                <th>Quantity</th>
-                <th>Status</th>
+                <th>{t('catalog.sku')}</th>
+                <th>{t('common.quantity')}</th>
+                <th>{t('common.status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -210,10 +212,10 @@ export const FulfillmentDetailPage: React.FC = () => {
                 <tr key={task.task_id}>
                   <td className="font-mono text-xs text-muted">{task.task_id.slice(0, 8)}...</td>
                   <td className="font-mono text-xs font-bold text-main">{task.sku_id}</td>
-                  <td className="text-xs font-semibold">{task.quantity}</td>
+                  <td className="text-xs font-semibold">{formatNumber(task.quantity)}</td>
                   <td>
                     <Badge variant={task.is_completed ? 'success' : 'warning'}>
-                      {task.is_completed ? 'Completed' : 'Pending'}
+                      {task.is_completed ? t('common.active') : 'Pending'}
                     </Badge>
                   </td>
                 </tr>

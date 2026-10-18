@@ -1,5 +1,5 @@
 import React from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 
 // Public / standalone views
@@ -31,9 +31,24 @@ import { TenantMembershipsPage } from '../features/identity/TenantMembershipsPag
 import { ServiceAccountsPage } from '../features/identity/ServiceAccountsPage';
 import { SecuritySettingsPage } from '../features/identity/SecuritySettingsPage';
 
+// Query-preserving redirect components
+const DashboardRedirect: React.FC = () => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: '/dashboard', search: location.search }} replace />;
+};
+
+const LoginRedirect: React.FC = () => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: '/login', search: location.search }} replace />;
+};
+
 export const router = createBrowserRouter([
   {
     path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    path: '/login/',
     element: <LoginPage />,
   },
   {
@@ -41,7 +56,15 @@ export const router = createBrowserRouter([
     element: <RegisterPage />,
   },
   {
+    path: '/register/',
+    element: <RegisterPage />,
+  },
+  {
     path: '/select-tenant',
+    element: <SelectTenantPage />,
+  },
+  {
+    path: '/select-tenant/',
     element: <SelectTenantPage />,
   },
   {
@@ -50,7 +73,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <Navigate to="/dashboard" replace />,
+        element: <DashboardRedirect />,
       },
       {
         path: 'dashboard',
@@ -151,12 +174,12 @@ export const router = createBrowserRouter([
       // Catch-all route within app layout
       {
         path: '*',
-        element: <Navigate to="/dashboard" replace />,
+        element: <DashboardRedirect />,
       },
     ],
   },
   {
     path: '*',
-    element: <Navigate to="/login" replace />,
+    element: <LoginRedirect />,
   },
 ]);

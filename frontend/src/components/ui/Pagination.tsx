@@ -1,5 +1,6 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import { Button } from './Button';
 
 export interface CursorPaginationProps {
@@ -15,12 +16,14 @@ export const CursorPagination: React.FC<CursorPaginationProps> = ({
   onReset,
   isLoading = false,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div className="flex items-center justify-between pt-4 mt-4 border-t">
       <div>
         {onReset && (
           <Button size="sm" variant="secondary" onClick={onReset} disabled={isLoading}>
-            First Page
+            {t('common.firstPage')}
           </Button>
         )}
       </div>
@@ -32,8 +35,8 @@ export const CursorPagination: React.FC<CursorPaginationProps> = ({
           disabled={!hasMore || isLoading}
           isLoading={isLoading}
         >
-          <span>Next Page</span>
-          <ChevronRight size={14} className="ml-1" />
+          <span>{t('common.nextPage')}</span>
+          <ChevronRight size={14} className="ml-1 rtl-flip" />
         </Button>
       </div>
     </div>

@@ -6,6 +6,23 @@
     <meta name="description" content="Arad Distributed Order and Inventory Orchestration Platform" />
     <title>Arad Platform</title>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <script>
+      // Automatically unregister any legacy ServiceWorker or CacheStorage from previous applications on localhost
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (var i = 0; i < registrations.length; i++) {
+            registrations[i].unregister();
+          }
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          for (var i = 0; i < keys.length; i++) {
+            caches.delete(keys[i]);
+          }
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

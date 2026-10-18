@@ -5,6 +5,7 @@ import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ReconcileResponse, ReindexResponse } from '../../api/types';
 import { useTenant } from '../../app/providers/TenantContext';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -12,6 +13,7 @@ import { Card } from '../../components/ui/Card';
 export const SearchMaintenancePage: React.FC = () => {
   const { activeTenantId } = useTenant();
   const { showToast } = useToast();
+  const { t, formatNumber } = useTranslation();
 
   const [isReindexing, setIsReindexing] = useState(false);
   const [reindexResult, setReindexResult] = useState<ReindexResponse | null>(null);
@@ -74,9 +76,9 @@ export const SearchMaintenancePage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Search Read-Model Maintenance</h1>
+          <h1 className="text-2xl font-bold">{t('search.maintenanceTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Administrative utilities for zero-downtime reindexing and consistency verification between PostgreSQL and Elasticsearch.
+            {t('search.maintenanceSubtitle')}
           </p>
         </div>
       </div>
@@ -86,7 +88,7 @@ export const SearchMaintenancePage: React.FC = () => {
       <div className="grid grid-cols-2 gap-6 mb-6">
         {/* Reindexing Section */}
         <Card
-          title="Search Index Rebuild"
+          title={t('search.rebuildBtn')}
           subtitle="Re-indexes all catalog products from PostgreSQL into a fresh versioned index and swaps alias atomically."
         >
           <p className="text-xs text-muted mb-4">
@@ -95,16 +97,16 @@ export const SearchMaintenancePage: React.FC = () => {
 
           {reindexResult && (
             <div className="card p-3 bg-surface-subtle mb-4 text-xs font-mono">
-              <div><strong>Status:</strong> {reindexResult.status}</div>
-              <div><strong>Total Documents Indexed:</strong> {reindexResult.total_indexed}</div>
-              {reindexResult.index_name && <div><strong>Index:</strong> {reindexResult.index_name}</div>}
+              <div><strong>{t('common.status')}:</strong> {reindexResult.status}</div>
+              <div><strong>Total Documents Indexed:</strong> {formatNumber(reindexResult.total_indexed)}</div>
+              {reindexResult.index_name && <div><strong>{t('search.indexName')}:</strong> {reindexResult.index_name}</div>}
               {reindexResult.alias && <div><strong>Alias:</strong> {reindexResult.alias}</div>}
             </div>
           )}
 
           <Button variant="primary" onClick={handleReindex} isLoading={isReindexing}>
             <RefreshCw size={14} className="mr-1" />
-            <span>Rebuild Tenant Index</span>
+            <span>{t('search.rebuildBtn')}</span>
           </Button>
         </Card>
 

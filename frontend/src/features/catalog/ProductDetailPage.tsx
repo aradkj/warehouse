@@ -6,7 +6,6 @@ import {
   CheckCircle,
   Coins,
   Edit2,
-  Package,
   Plus,
   RefreshCw,
   Tag,
@@ -17,6 +16,7 @@ import { catalogApi } from '../../api/endpoints/catalog';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ProductResponse, SkuResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -28,6 +28,7 @@ export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
 
   const [product, setProduct] = useState<ProductResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -191,19 +192,19 @@ export const ProductDetailPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="text-center py-12 text-muted">Loading product details...</div>;
+    return <div className="text-center py-12 text-muted">{t('common.loading')}</div>;
   }
 
   if (error || !product) {
     return (
       <div>
         <Alert variant="danger" className="mb-4">
-          {error || 'Product not found.'}
+          {error || t('errors.notFound')}
         </Alert>
         <Link to="/catalog/products">
           <Button variant="secondary" size="sm">
-            <ArrowLeft size={14} className="mr-1" />
-            <span>Back to Catalog</span>
+            <ArrowLeft size={14} className="mr-1 rtl-flip" />
+            <span>{t('common.back')}</span>
           </Button>
         </Link>
       </div>
@@ -221,8 +222,8 @@ export const ProductDetailPage: React.FC = () => {
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Link to="/catalog/products" className="text-xs text-muted hover:text-main flex items-center">
-          <ArrowLeft size={14} className="mr-1" />
-          <span>Back to Products</span>
+          <ArrowLeft size={14} className="mr-1 rtl-flip" />
+          <span>{t('catalog.title')}</span>
         </Link>
       </div>
 
@@ -233,24 +234,29 @@ export const ProductDetailPage: React.FC = () => {
             <Badge variant={badgeVariant}>{product.status}</Badge>
           </div>
           <div className="text-xs text-muted font-mono mt-1">
-            Slug: {product.slug} • ID: {product.id} • Version: {product.version}
+            Product UUID: {product.id} • Slug: {product.slug} • Version: {product.version}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={fetchProduct}>
+            <RefreshCw size={14} className="mr-1" />
+            <span>{t('common.refresh')}</span>
+          </Button>
+
           <Button size="sm" variant="secondary" onClick={() => setIsReviseOpen(true)}>
             <Edit2 size={14} className="mr-1" />
-            <span>Revise</span>
+            <span>{t('common.edit')}</span>
           </Button>
 
           {product.status === 'DRAFT' && (
             <Button size="sm" variant="primary" onClick={handleActivate}>
               <CheckCircle size={14} className="mr-1" />
-              <span>Activate Product</span>
+              <span>Activate for Sale</span>
             </Button>
           )}
 
-          {product.status !== 'ARCHIVED' && (
+          {product.status === 'ACTIVE' && (
             <Button size="sm" variant="danger" onClick={handleArchive}>
               <Archive size={14} className="mr-1" />
               <span>Archive</span>
@@ -259,133 +265,128 @@ export const ProductDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Product Details Overview */}
       <div className="grid grid-cols-3 gap-6 mb-6">
-        <Card title="Product Attributes" className="col-span-2 mb-0">
-          <div className="mb-4">
-            <div className="text-xs font-semibold text-muted mb-1">Description</div>
-            <p className="text-sm text-secondary">
-              {product.description || 'No description provided.'}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t text-xs">
+        <Card title={t('catalog.detailTitle')} className="mb-0">
+          <div className="space-y-3 text-xs">
             <div>
-              <span className="text-muted">Created: </span>
-              <span className="font-medium">{new Date(product.created_at).toLocaleString()}</span>
+              <span className="text-muted block">{t('catalog.name')}:</span>
+              <strong className="text-sm font-semibold">{product.name}</strong>
             </div>
             <div>
-              <span className="text-muted">Last Updated: </span>
-              <span className="font-medium">{new Date(product.updated_at).toLocaleString()}</span>
+              <span className="text-muted block">Slug:</span>
+              <span className="font-mono">{product.slug}</span>
+            </div>
+            <div>
+              <span className="text-muted block">{t('common.description')}:</span>
+              <p className="mt-0.5 text-secondary">{product.description || 'No description provided.'}</p>
+            </div>
+            <div>
+              <span className="text-muted block">{t('common.created_at')}:</span>
+              <span className="font-mono">{formatDate(product.created_at)}</span>
             </div>
           </div>
         </Card>
 
-        <Card title="SKU Summary" className="mb-0">
-          <div className="text-center py-4">
-            <div className="text-3xl font-bold text-primary">{product.skus.length}</div>
-            <div className="text-xs text-muted mt-1">Stock Keeping Units</div>
-          </div>
-          <div className="pt-4 border-t text-xs text-muted">
-            Each SKU represents a sellable variant with its own list price and inventory ledger.
-          </div>
+        {/* SKUs Table */}
+        <Card
+          title="Stock Keeping Units (SKUs)"
+          subtitle="Physical variants and list pricing for orders"
+          action={
+            <Button size="sm" variant="primary" onClick={() => setIsAddSkuOpen(true)}>
+              <Plus size={14} className="mr-1" />
+              <span>Add SKU</span>
+            </Button>
+          }
+          className="col-span-2 mb-0"
+        >
+          {product.skus.length === 0 ? (
+            <div className="text-center py-8 text-muted text-sm">
+              No SKUs defined for this product yet. Add at least one SKU to enable sales.
+            </div>
+          ) : (
+            <div className="table-container border-0">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t('catalog.sku')}</th>
+                    <th>{t('catalog.name')}</th>
+                    <th>{t('catalog.unitPrice')}</th>
+                    <th>{t('catalog.status')}</th>
+                    <th>{t('common.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {product.skus.map((sku) => {
+                    const skuBadgeVariant = sku.status === 'ACTIVE' ? 'success' : 'neutral';
+                    const priceFormatted = sku.unit_price
+                      ? `${formatNumber(sku.unit_price.amount_minor / 100, { minimumFractionDigits: 2 })} ${sku.unit_price.currency}`
+                      : 'Not priced';
+
+                    return (
+                      <tr key={sku.id}>
+                        <td className="font-mono text-xs font-bold text-primary">
+                          {sku.code}
+                        </td>
+                        <td className="text-xs">{sku.name}</td>
+                        <td className="font-mono text-xs font-semibold">
+                          {priceFormatted}
+                        </td>
+                        <td>
+                          <Badge variant={skuBadgeVariant}>{sku.status}</Badge>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setSelectedSku(sku);
+                                setNewPriceMinor(sku.unit_price ? sku.unit_price.amount_minor : 0);
+                                setNewCurrency(sku.unit_price ? sku.unit_price.currency : 'GBP');
+                                setIsPriceModalOpen(true);
+                              }}
+                              title="Update list price"
+                            >
+                              <Coins size={12} className="mr-1" />
+                              <span>Price</span>
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant={sku.status === 'ACTIVE' ? 'secondary' : 'primary'}
+                              onClick={() => handleToggleSkuStatus(sku)}
+                              title={sku.status === 'ACTIVE' ? 'Deactivate SKU' : 'Activate SKU'}
+                            >
+                              {sku.status === 'ACTIVE' ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
 
-      {/* SKUs Section */}
-      <Card
-        title="Product SKUs"
-        subtitle="Manage product codes, active status, and unit prices"
-        action={
-          <Button size="sm" variant="primary" onClick={() => setIsAddSkuOpen(true)}>
-            <Plus size={14} className="mr-1" />
-            <span>Add SKU</span>
-          </Button>
-        }
-      >
-        {product.skus.length === 0 ? (
-          <div className="text-center py-8 text-muted text-sm">
-            No SKUs created for this product yet. Click "Add SKU" to define a stock keeping unit.
-          </div>
-        ) : (
-          <div className="table-container border-0">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>SKU Code</th>
-                  <th>SKU Name</th>
-                  <th>List Price</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {product.skus.map((sku) => {
-                  const skuBadgeVariant = sku.status === 'ACTIVE' ? 'success' : 'neutral';
-                  const formattedPrice = `${(sku.unit_price.amount_minor / 100).toFixed(2)} ${sku.unit_price.currency}`;
-
-                  return (
-                    <tr key={sku.id}>
-                      <td className="font-mono text-xs font-bold">{sku.code}</td>
-                      <td className="text-xs">{sku.name}</td>
-                      <td className="text-xs font-medium">
-                        <span className="flex items-center gap-1">
-                          <Coins size={14} className="text-muted" />
-                          <span>{formattedPrice}</span>
-                        </span>
-                      </td>
-                      <td>
-                        <Badge variant={skuBadgeVariant}>{sku.status}</Badge>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              setSelectedSku(sku);
-                              setNewPriceMinor(sku.unit_price.amount_minor);
-                              setNewCurrency(sku.unit_price.currency);
-                              setIsPriceModalOpen(true);
-                            }}
-                          >
-                            Change Price
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleToggleSkuStatus(sku)}
-                            title={sku.status === 'ACTIVE' ? 'Deactivate SKU' : 'Activate SKU'}
-                          >
-                            {sku.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {/* Revise Product Modal */}
+      {/* Revise Modal */}
       <Modal
         isOpen={isReviseOpen}
         onClose={() => setIsReviseOpen(false)}
         title="Revise Product"
-        description="Update display name and description."
+        description="Update product metadata and specifications."
       >
         <form onSubmit={handleReviseSubmit}>
           <Input
-            label="Product Name"
+            label={t('catalog.nameInput')}
             value={reviseName}
             onChange={(e) => setReviseName(e.target.value)}
             required
           />
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('catalog.descriptionInput')}</label>
             <textarea
               className="form-textarea"
               rows={4}
@@ -396,10 +397,10 @@ export const ProductDetailPage: React.FC = () => {
           </div>
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="secondary" onClick={() => setIsReviseOpen(false)} disabled={isRevising}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" type="submit" isLoading={isRevising}>
-              Save Changes
+              {t('common.save')}
             </Button>
           </div>
         </form>
@@ -409,63 +410,61 @@ export const ProductDetailPage: React.FC = () => {
       <Modal
         isOpen={isAddSkuOpen}
         onClose={() => setIsAddSkuOpen(false)}
-        title="Add SKU to Product"
-        description="Create a unique SKU code with price."
+        title="Add Stock Keeping Unit (SKU)"
+        description="Define an orderable SKU with distinct code and list price."
       >
         <form onSubmit={handleAddSkuSubmit}>
           <Input
-            label="SKU Code"
+            label={t('catalog.skuInput')}
             value={skuCode}
             onChange={(e) => setSkuCode(e.target.value.toUpperCase())}
-            placeholder="KB-ERG-01"
-            helperText="Alphanumeric code, underscores, dots, and hyphens."
+            placeholder="e.g. KB-ERG-BLK"
+            helperText="Uppercase alphanumeric stock code"
             required
           />
           <Input
-            label="SKU Name / Variant"
+            label="Variant / SKU Name"
             value={skuName}
             onChange={(e) => setSkuName(e.target.value)}
-            placeholder="Black - US Layout"
+            placeholder="e.g. Midnight Black (ISO UK Layout)"
             required
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Price (Minor units, e.g. 1999 = £19.99)"
+              label="Price (Minor units / pence / cents)"
               type="number"
               min="0"
               value={skuPriceMinor}
               onChange={(e) => setSkuPriceMinor(Number(e.target.value))}
+              helperText={`Equivalent to ${(skuPriceMinor / 100).toFixed(2)} ${skuCurrency}`}
               required
             />
             <Input
-              label="Currency (ISO 3-letter)"
+              label={t('catalog.currencyInput')}
               value={skuCurrency}
               onChange={(e) => setSkuCurrency(e.target.value.toUpperCase())}
+              placeholder="GBP"
               maxLength={3}
-              pattern="^[A-Za-z]{3}$"
               required
             />
           </div>
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="secondary" onClick={() => setIsAddSkuOpen(false)} disabled={isAddingSku}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" type="submit" isLoading={isAddingSku}>
-              Create SKU
+              {t('common.create')}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Change Price Modal */}
+      {/* Update Price Modal */}
       <Modal
         isOpen={isPriceModalOpen}
-        onClose={() => {
-          setIsPriceModalOpen(false);
-          setSelectedSku(null);
-        }}
-        title={`Change Price for ${selectedSku?.code}`}
-        description="Update SKU list price in minor units."
+        onClose={() => setIsPriceModalOpen(false)}
+        title={`Change List Price: ${selectedSku?.code}`}
+        description="Authoritatively adjust the catalog unit price for this SKU."
       >
         <form onSubmit={handlePriceSubmit}>
           <div className="grid grid-cols-2 gap-4">
@@ -475,32 +474,24 @@ export const ProductDetailPage: React.FC = () => {
               min="0"
               value={newPriceMinor}
               onChange={(e) => setNewPriceMinor(Number(e.target.value))}
+              helperText={`Equivalent to ${(newPriceMinor / 100).toFixed(2)} ${newCurrency}`}
               required
             />
             <Input
-              label="Currency"
+              label={t('catalog.currencyInput')}
               value={newCurrency}
               onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
+              placeholder="GBP"
               maxLength={3}
               required
             />
           </div>
-          <div className="text-xs text-muted mt-2">
-            Formatted display: {((newPriceMinor || 0) / 100).toFixed(2)} {newCurrency}
-          </div>
           <div className="flex justify-end gap-2 mt-6">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIsPriceModalOpen(false);
-                setSelectedSku(null);
-              }}
-              disabled={isUpdatingPrice}
-            >
-              Cancel
+            <Button variant="secondary" onClick={() => setIsPriceModalOpen(false)} disabled={isUpdatingPrice}>
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" type="submit" isLoading={isUpdatingPrice}>
-              Update Price
+              {t('common.save')}
             </Button>
           </div>
         </form>

@@ -1,9 +1,11 @@
 import React from 'react';
 import { AlertCircle, CheckCircle, Info, TriangleAlert, X } from 'lucide-react';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 
 export const ToastContainer: React.FC = () => {
   const { toasts, removeToast } = useToast();
+  const { t } = useTranslation();
 
   if (toasts.length === 0) return null;
 
@@ -12,7 +14,7 @@ export const ToastContainer: React.FC = () => {
       style={{
         position: 'fixed',
         bottom: '1.5rem',
-        right: '1.5rem',
+        insetInlineEnd: '1.5rem',
         zIndex: 100,
         display: 'flex',
         flexDirection: 'column',
@@ -89,7 +91,7 @@ export const ToastContainer: React.FC = () => {
                 opacity: 0.7,
                 padding: '2px',
               }}
-              aria-label="Dismiss toast"
+              aria-label={t('common.dismiss')}
             >
               <X size={14} />
             </button>

@@ -4,6 +4,7 @@ import { inventoryApi } from '../../api/endpoints/inventory';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { WarehouseResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
@@ -11,10 +12,10 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
-import { CursorPagination } from '../../components/ui/Pagination';
 
 export const WarehouseListPage: React.FC = () => {
   const { showToast } = useToast();
+  const { t, formatDate, formatNumber } = useTranslation();
   const [warehouses, setWarehouses] = useState<WarehouseResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +53,7 @@ export const WarehouseListPage: React.FC = () => {
     setFormError(null);
 
     if (!code.trim() || !name.trim()) {
-      setFormError('Warehouse code and name are required.');
+      setFormError(t('common.required'));
       return;
     }
 
@@ -79,9 +80,9 @@ export const WarehouseListPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Warehouses</h1>
+          <h1 className="text-2xl font-bold">{t('inventory.warehousesTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Physical fulfillment sites and inventory holding locations.
+            {t('inventory.warehousesSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -92,7 +93,7 @@ export const WarehouseListPage: React.FC = () => {
             isLoading={isLoading}
           >
             <RefreshCw size={14} className="mr-1" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button
             size="sm"
@@ -100,7 +101,7 @@ export const WarehouseListPage: React.FC = () => {
             onClick={() => setIsRegisterOpen(true)}
           >
             <Plus size={14} className="mr-1" />
-            <span>Register Warehouse</span>
+            <span>{t('common.create')}</span>
           </Button>
         </div>
       </div>
@@ -108,13 +109,13 @@ export const WarehouseListPage: React.FC = () => {
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted">Loading warehouses...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : warehouses.length === 0 ? (
         <Card>
           <EmptyState
-            title="No Warehouses Registered"
-            description="You need at least one warehouse location to track inventory and allocate orders."
-            actionLabel="Register Warehouse"
+            title={t('inventory.warehousesTitle')}
+            description={t('inventory.warehousesSubtitle')}
+            actionLabel={t('common.create')}
             onAction={() => setIsRegisterOpen(true)}
             icon={<Warehouse size={48} strokeWidth={1.5} />}
           />
@@ -145,14 +146,14 @@ export const WarehouseListPage: React.FC = () => {
                   </div>
                 </div>
                 <Badge variant={wh.is_active ? 'success' : 'neutral'}>
-                  {wh.is_active ? 'Active' : 'Inactive'}
+                  {wh.is_active ? t('common.active') : t('common.inactive')}
                 </Badge>
               </div>
 
               <div className="pt-3 border-t text-xs text-muted font-mono space-y-1">
                 <div>ID: {wh.id}</div>
-                <div>Created: {new Date(wh.created_at).toLocaleDateString()}</div>
-                <div>Version: {wh.version}</div>
+                <div>{t('common.created_at')}: {formatDate(wh.created_at)}</div>
+                <div>Version: {formatNumber(wh.version)}</div>
               </div>
             </Card>
           ))}
@@ -163,14 +164,14 @@ export const WarehouseListPage: React.FC = () => {
       <Modal
         isOpen={isRegisterOpen}
         onClose={() => setIsRegisterOpen(false)}
-        title="Register Warehouse"
-        description="Add a physical location for inventory tracking and order dispatch."
+        title={t('inventory.warehousesTitle')}
+        description={t('inventory.warehousesSubtitle')}
       >
         {formError && <Alert variant="danger" className="mb-4">{formError}</Alert>}
 
         <form onSubmit={handleRegister}>
           <Input
-            label="Warehouse Code"
+            label={t('inventory.code')}
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="e.g. LON-01 or LAX"
@@ -179,7 +180,7 @@ export const WarehouseListPage: React.FC = () => {
           />
 
           <Input
-            label="Warehouse Name"
+            label={t('inventory.warehouseName')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="London Gateway Fulfillment Hub"
@@ -188,10 +189,10 @@ export const WarehouseListPage: React.FC = () => {
 
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="secondary" onClick={() => setIsRegisterOpen(false)} disabled={isSubmitting}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" type="submit" isLoading={isSubmitting}>
-              Register
+              {t('common.save')}
             </Button>
           </div>
         </form>

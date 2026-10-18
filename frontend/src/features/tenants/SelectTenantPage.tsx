@@ -6,6 +6,8 @@ import { ApiError, formatErrorMessage } from '../../api/errors';
 import { useAuth } from '../../app/providers/AuthContext';
 import { useTenant } from '../../app/providers/TenantContext';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
+import { LanguageSwitcher } from '../../components/common/LanguageSwitcher';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -25,6 +27,7 @@ export const SelectTenantPage: React.FC = () => {
     membershipError,
   } = useTenant();
   const { showToast } = useToast();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [isRetrying, setIsRetrying] = useState(false);
@@ -95,22 +98,25 @@ export const SelectTenantPage: React.FC = () => {
     <div style={{ maxWidth: '800px', margin: '2rem auto', padding: '0 1rem' }}>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Tenant Selection</h1>
+          <h1 className="text-2xl font-bold">{t('tenants.selectTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Choose an organization context to access orders, catalog, and inventory.
+            {t('tenants.selectSubtitle')}
           </p>
         </div>
-        <Button
-          variant="primary"
-          onClick={() => setIsCreateModalOpen(true)}
-        >
-          <Plus size={16} />
-          <span>New Tenant</span>
-        </Button>
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
+          <Button
+            variant="primary"
+            onClick={() => setIsCreateModalOpen(true)}
+          >
+            <Plus size={16} />
+            <span>{t('tenants.createNewTenant')}</span>
+          </Button>
+        </div>
       </div>
 
       {isLoadingTenants && !hasLoadedTenants ? (
-        <div className="text-center py-12 text-muted">Loading your tenant memberships...</div>
+        <div className="text-center py-12 text-muted">{t('common.loading')}</div>
       ) : membershipError ? (
         <Card className="text-center py-10">
           <div
@@ -128,7 +134,7 @@ export const SelectTenantPage: React.FC = () => {
           >
             <AlertCircle size={24} />
           </div>
-          <h2 className="text-lg font-semibold text-main mb-1">Failed to Load Memberships</h2>
+          <h2 className="text-lg font-semibold text-main mb-1">{t('tenants.loadError')}</h2>
           <p className="text-sm text-muted max-w-md mx-auto mb-6">
             {membershipError || 'Could not retrieve your organization memberships from the server.'}
           </p>
@@ -140,23 +146,23 @@ export const SelectTenantPage: React.FC = () => {
               disabled={isRetrying || isLoadingTenants}
             >
               <RefreshCw size={14} className="mr-1.5" />
-              <span>Retry Loading Memberships</span>
+              <span>{t('tenants.retryLoading')}</span>
             </Button>
             <Button variant="secondary" onClick={() => setIsCreateModalOpen(true)}>
               <Plus size={14} className="mr-1.5" />
-              <span>Provision New Tenant</span>
+              <span>{t('tenants.provisionNewTenant')}</span>
             </Button>
           </div>
         </Card>
       ) : memberships.length === 0 ? (
         <Card className="text-center py-10">
           <Building size={48} className="mx-auto text-muted mb-3" />
-          <h2 className="text-lg font-semibold mb-1">No Active Memberships</h2>
+          <h2 className="text-lg font-semibold mb-1">{t('tenants.noMembershipsTitle')}</h2>
           <p className="text-sm text-muted max-w-md mx-auto mb-6">
-            You are not currently an active member of any tenant. Provision a new tenant or request an invitation token from your administrator.
+            {t('tenants.noMembershipsDesc')}
           </p>
           <Button variant="primary" onClick={() => setIsCreateModalOpen(true)}>
-            Provision First Tenant
+            {t('tenants.provisionFirstTenant')}
           </Button>
         </Card>
       ) : (
@@ -194,7 +200,7 @@ export const SelectTenantPage: React.FC = () => {
                       <span className="font-semibold text-base">
                         {m.tenant_name || m.tenant_slug || `Tenant ${m.tenant_id.slice(0, 8)}`}
                       </span>
-                      {isCurrent && <Badge variant="success">Active Context</Badge>}
+                      {isCurrent && <Badge variant="success">{t('tenants.activeContext')}</Badge>}
                     </div>
                     <div className="text-xs text-muted flex items-center gap-2 mt-1">
                       <span>ID: <code className="font-mono">{m.tenant_id}</code></span>
@@ -212,8 +218,8 @@ export const SelectTenantPage: React.FC = () => {
                   size="sm"
                   onClick={() => handleSelectTenant(m.tenant_id)}
                 >
-                  <span>{isCurrent ? 'Continue' : 'Switch Context'}</span>
-                  <ArrowRight size={14} className="ml-1" />
+                  <span>{isCurrent ? t('common.continue') || 'Continue' : t('tenants.switchContext')}</span>
+                  <ArrowRight size={14} className="ml-1 rtl-flip" />
                 </Button>
               </div>
             );
@@ -225,8 +231,8 @@ export const SelectTenantPage: React.FC = () => {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={resetModal}
-        title="Provision New Tenant"
-        description="Create an isolated tenant partition with dedicated catalog and inventory."
+        title={t('tenants.createModalTitle')}
+        description={t('tenants.createModalDesc')}
       >
         {createdInvitation ? (
           <div>
@@ -247,7 +253,7 @@ export const SelectTenantPage: React.FC = () => {
             </div>
             <div className="flex justify-end mt-4">
               <Button variant="primary" onClick={resetModal}>
-                Done
+                {t('common.close')}
               </Button>
             </div>
           </div>
@@ -260,7 +266,7 @@ export const SelectTenantPage: React.FC = () => {
             )}
 
             <Input
-              label="Organization / Tenant Name"
+              label={t('tenants.tenantNameLabel')}
               value={tenantName}
               onChange={(e) => {
                 setTenantName(e.target.value);
@@ -273,26 +279,26 @@ export const SelectTenantPage: React.FC = () => {
                   );
                 }
               }}
-              placeholder="Acme Logistics Corp"
+              placeholder={t('tenants.tenantNamePlaceholder')}
               required
             />
 
             <Input
-              label="Tenant Slug (Unique identifier)"
+              label={t('tenants.tenantSlugLabel')}
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value.toLowerCase())}
-              placeholder="acme-logistics"
+              placeholder={t('tenants.tenantSlugPlaceholder')}
               pattern="^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
-              helperText="3-64 characters, lowercase alphanumeric and hyphens only."
+              helperText={t('tenants.tenantSlugHelp')}
               required
             />
 
             <div className="flex justify-end gap-2 mt-6">
               <Button variant="secondary" onClick={resetModal} disabled={isSubmitting}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button variant="primary" type="submit" isLoading={isSubmitting}>
-                Provision Tenant
+                {t('tenants.createTenantBtn')}
               </Button>
             </div>
           </form>

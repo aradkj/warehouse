@@ -5,6 +5,7 @@ import { ApiError, formatErrorMessage } from '../../api/errors';
 import { ServiceAccountCreatedResponse, ServiceAccountResponse } from '../../api/types';
 import { useTenant } from '../../app/providers/TenantContext';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -15,6 +16,7 @@ import { Modal } from '../../components/ui/Modal';
 export const ServiceAccountsPage: React.FC = () => {
   const { activeTenantId } = useTenant();
   const { showToast } = useToast();
+  const { t } = useTranslation();
 
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountResponse[]>([]);
   const [createdCredentials, setCreatedCredentials] = useState<ServiceAccountCreatedResponse | null>(null);
@@ -99,15 +101,15 @@ export const ServiceAccountsPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Service Accounts</h1>
+          <h1 className="text-2xl font-bold">{t('identity.serviceAccountsTitle')}</h1>
           <p className="text-sm text-muted mt-1">
-            Machine-to-machine integration credentials scoped to this tenant.
+            {t('identity.serviceAccountsSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="primary" onClick={() => setIsCreateOpen(true)}>
             <Plus size={14} className="mr-1" />
-            <span>New Service Account</span>
+            <span>{t('identity.newServiceAccount')}</span>
           </Button>
         </div>
       </div>
@@ -115,12 +117,12 @@ export const ServiceAccountsPage: React.FC = () => {
       {serviceAccounts.length === 0 ? (
         <Card className="text-center py-12">
           <Key size={48} className="mx-auto text-muted mb-3" />
-          <h2 className="text-base font-semibold mb-1">No Service Accounts</h2>
+          <h2 className="text-base font-semibold mb-1">{t('identity.noServiceAccounts')}</h2>
           <p className="text-sm text-muted max-w-md mx-auto mb-6">
-            Create programmatic service accounts with scoped permissions for automated background systems, carriers, or ERP integrations.
+            {t('identity.serviceAccountsSubtitle')}
           </p>
           <Button variant="primary" onClick={() => setIsCreateOpen(true)}>
-            Create Service Account
+            {t('identity.newServiceAccount')}
           </Button>
         </Card>
       ) : (

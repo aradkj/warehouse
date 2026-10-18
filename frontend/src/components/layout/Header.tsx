@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Building, LogOut, Menu, Shield, User } from 'lucide-react';
 import { useAuth } from '../../app/providers/AuthContext';
 import { useTenant } from '../../app/providers/TenantContext';
+import { useTranslation } from '../../i18n';
+import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { SystemStatusIndicator } from '../feedback/SystemStatusIndicator';
 import { Button } from '../ui/Button';
 
@@ -13,6 +15,7 @@ export interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
   const { user, principal, logout } = useAuth();
   const { activeTenantId, activeMembership, memberships, selectTenant } = useTenant();
+  const { t } = useTranslation();
   const [isTenantMenuOpen, setIsTenantMenuOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -30,18 +33,21 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
           <button
             onClick={onToggleMobileNav}
             className="btn btn-secondary btn-sm md:hidden"
-            aria-label="Toggle navigation"
+            aria-label={t('header.toggleNavigation')}
             style={{ display: 'none' }}
           >
             <Menu size={16} />
           </button>
         )}
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-base text-main">Arad Platform</span>
+          <span className="font-semibold text-base text-main">{t('header.title')}</span>
         </div>
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Language Switcher */}
+        <LanguageSwitcher />
+
         {/* System Health Probe */}
         <SystemStatusIndicator />
 
@@ -52,11 +58,11 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
               onClick={() => setIsTenantMenuOpen(!isTenantMenuOpen)}
               className="btn btn-secondary btn-sm flex items-center gap-2"
               aria-expanded={isTenantMenuOpen}
-              aria-label="Active tenant selector"
+              aria-label={t('header.activeTenantSelector')}
             >
               <Building size={14} className="text-secondary" />
               <span className="font-medium">
-                {activeMembership?.tenant_name || activeMembership?.tenant_slug || activeTenantId?.slice(0, 8) || 'Select Tenant'}
+                {activeMembership?.tenant_name || activeMembership?.tenant_slug || activeTenantId?.slice(0, 8) || t('header.selectTenant')}
               </span>
             </button>
 
@@ -65,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                 style={{
                   position: 'absolute',
                   top: '100%',
-                  right: 0,
+                  insetInlineEnd: 0,
                   marginTop: '0.25rem',
                   width: '260px',
                   backgroundColor: 'var(--bg-surface)',
@@ -77,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                 }}
               >
                 <div className="px-3 py-1 text-xs font-semibold text-muted border-b mb-1">
-                  Tenant Memberships
+                  {t('header.tenantMemberships')}
                 </div>
                 {memberships.map((m) => (
                   <button
@@ -86,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                       selectTenant(m.tenant_id);
                       setIsTenantMenuOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-surface-subtle ${
+                    className={`w-full text-start px-3 py-2 text-sm flex items-center justify-between hover:bg-surface-subtle ${
                       m.tenant_id === activeTenantId ? 'font-semibold text-primary' : ''
                     }`}
                     style={{ background: 'none', border: 'none', cursor: 'pointer' }}
@@ -96,7 +102,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                       <div className="text-xs text-muted">{m.role}</div>
                     </div>
                     {m.tenant_id === activeTenantId && (
-                      <span className="badge badge-success text-xs">Active</span>
+                      <span className="badge badge-success text-xs">{t('header.activeBadge')}</span>
                     )}
                   </button>
                 ))}
@@ -106,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
                     onClick={() => setIsTenantMenuOpen(false)}
                     className="block px-3 py-1.5 text-xs text-primary hover:underline"
                   >
-                    Manage all tenants...
+                    {t('header.manageAllTenants')}
                   </Link>
                 </div>
               </div>
@@ -115,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
         )}
 
         {/* User Info & Role Badge */}
-        <div className="flex items-center gap-3 pl-2 border-l">
+        <div className="flex items-center gap-3 border-inline-start padding-inline-start-2">
           <div className="flex items-center gap-2">
             <div
               style={{
@@ -150,10 +156,10 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileNav }) => {
             size="sm"
             variant="secondary"
             onClick={handleLogout}
-            title="Sign out"
-            aria-label="Sign out"
+            title={t('header.signOut')}
+            aria-label={t('header.signOut')}
           >
-            <LogOut size={14} />
+            <LogOut size={14} className="rtl-flip" />
           </Button>
         </div>
       </div>

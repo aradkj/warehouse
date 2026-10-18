@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Truck, Search, ArrowRight, ClipboardList, Info } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -8,6 +9,7 @@ import { Alert } from '../../components/ui/Alert';
 
 export const FulfillmentLookupPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [lookupId, setLookupId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -26,19 +28,19 @@ export const FulfillmentLookupPage: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Fulfillment & Carrier Operations</h1>
+          <h1 className="text-2xl font-bold">{t('fulfillment.title')}</h1>
           <p className="text-sm text-muted mt-1">
-            Track outbound warehouse dispatch tasks, carrier allocations, and manage retry workflows.
+            {t('fulfillment.subtitle')}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
-        <Card title="Lookup Fulfillment Record" subtitle="Search by specific fulfillment identifier">
+        <Card title={t('fulfillment.lookupTitle')} subtitle={t('fulfillment.lookupSubtitle')}>
           {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
           <form onSubmit={handleLookup} className="space-y-4">
             <Input
-              label="Fulfillment ID (UUID)"
+              label={t('fulfillment.fulfillmentId')}
               placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
               value={lookupId}
               onChange={(e) => setLookupId(e.target.value)}
@@ -46,7 +48,7 @@ export const FulfillmentLookupPage: React.FC = () => {
             />
             <Button type="submit" variant="primary">
               <Search size={16} className="mr-1.5" />
-              <span>Inspect Fulfillment State</span>
+              <span>{t('common.search')}</span>
             </Button>
           </form>
         </Card>
@@ -78,7 +80,7 @@ export const FulfillmentLookupPage: React.FC = () => {
               <Link to="/orders">
                 <Button variant="secondary" size="sm">
                   <span>Go to Orders to Request Fulfillment</span>
-                  <ArrowRight size={14} className="ml-1.5" />
+                  <ArrowRight size={14} className="ml-1.5 rtl-flip" />
                 </Button>
               </Link>
             </div>

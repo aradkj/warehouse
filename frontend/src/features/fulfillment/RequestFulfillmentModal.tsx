@@ -5,6 +5,7 @@ import { inventoryApi } from '../../api/endpoints/inventory';
 import { ApiError, formatErrorMessage } from '../../api/errors';
 import { OrderResponse, WarehouseResponse } from '../../api/types';
 import { useToast } from '../../app/providers/ToastContext';
+import { useTranslation } from '../../i18n';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -23,6 +24,7 @@ export const RequestFulfillmentModal: React.FC<RequestFulfillmentModalProps> = (
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { t, formatNumber } = useTranslation();
 
   const [warehouses, setWarehouses] = useState<WarehouseResponse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
@@ -81,21 +83,21 @@ export const RequestFulfillmentModal: React.FC<RequestFulfillmentModalProps> = (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Request Order Fulfillment"
+      title={t('orders.fulfillBtn')}
       description="Designate a fulfillment warehouse and initiate carrier dispatch tasks."
     >
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label className="form-label">Fulfillment Warehouse <span className="text-danger">*</span></label>
+          <label className="form-label">{t('inventory.warehouseSelect')} <span className="text-danger">*</span></label>
           <select
             className="form-select"
             value={selectedWarehouseId}
             onChange={(e) => setSelectedWarehouseId(e.target.value)}
             required
           >
-            <option value="">Select fulfillment warehouse...</option>
+            <option value="">{t('common.selectOption')}</option>
             {warehouses.map((wh) => (
               <option key={wh.id} value={wh.id}>
                 {wh.name} ({wh.code})
@@ -120,16 +122,16 @@ export const RequestFulfillmentModal: React.FC<RequestFulfillmentModalProps> = (
 
         <div className="card p-3 bg-surface-subtle mb-4 text-xs font-mono">
           <div className="mb-1 font-bold">Fulfillment Task Scope:</div>
-          <div>Order ID: {order.id}</div>
-          <div>Lines to Pick: {order.lines.length} lines ({order.total_quantity} items)</div>
+          <div>{t('orders.orderId')}: {order.id}</div>
+          <div>Lines to Pick: {formatNumber(order.lines.length)} lines ({formatNumber(order.total_quantity)} items)</div>
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
           <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" isLoading={isSubmitting}>
-            Dispatch Fulfillment
+            {t('orders.fulfillBtn')}
           </Button>
         </div>
       </form>
